@@ -1,0 +1,101 @@
+# Konstructor
+
+Gerador CLI independente para transformar requisitos em propostas revisáveis de alteração para o workspace Kodoo.
+
+## Princípio de segurança
+
+O gerador nunca escreve no workspace-alvo durante `inspect`, `index`, `plan`, `generate`, `validate` ou `diff`. As propostas ficam em staging fora do repositório. `apply` exige o ID exato do changeset e uma aprovação explícita (`--yes` em automação ou confirmação interativa). Alterações locais não são descartadas e conflitos de hash interrompem a aplicação.
+
+## Uso rápido
+
+```bash
+python -m konstructor inspect /caminho/kodoo --json
+python -m konstructor index /caminho/kodoo
+python -m konstructor plan /caminho/kodoo "criar módulo de contratos" --output PLAN.md
+python -m konstructor generate /caminho/kodoo PLAN_ID
+python -m konstructor validate /caminho/kodoo CHANGESET_ID
+python -m konstructor diff /caminho/kodoo CHANGESET_ID
+python -m konstructor apply /caminho/kodoo CHANGESET_ID --yes
+python -m konstructor tui /caminho/kodoo
+python -m konstructor tui /caminho/kodoo --theme high-contrast
+python -m konstructor tui /caminho/kodoo --theme /caminho/meu-tema.json
+python -m konstructor web /caminho/kodoo --host 0.0.0.0 --port 8765
+```
+
+## Interface TUI
+
+`tui` abre uma interface interativa baseada em `curses`. Use as setas para escolher `Inspect`, `Index`, `Plan`, `Generate`, `Validate`, `Diff`, `Apply` ou `Status`, e pressione Enter para executar. O diff é somente leitura e a aplicação exige digitar `sim` na confirmação da própria tela. `q` sai sem alterar o workspace.
+
+Há quatro abas: `WORKSPACE`, `DIFF`, `LOGS` e `SPLIT`. A aba `SPLIT` é a visualização padrão e mostra o inventário do workspace, o diff/detalhe e os logs simultaneamente. A aba `LOGS` recebe eventos do próprio gerador e do módulo `logging` padrão em tempo real, com atualização automática a cada 200 ms. Use `Tab` ou `1`/`2`/`3`/`4` para trocar de painel.
+
+Temas disponíveis: `kodoo-dark`, `high-contrast` e `mono`. Também é possível passar um JSON customizado, ou criar `~/.konstructor/theme.json` para torná-lo o tema padrão. Exemplo:
+
+```json
+{
+  "name": "minha-identidade",
+  "header": "magenta",
+  "accent": "cyan",
+  "selected": "yellow",
+  "text": "white",
+  "muted": "white",
+  "panel": "blue",
+  "success": "green",
+  "error": "red",
+  "diff_add": "green",
+  "diff_del": "red"
+}
+```
+
+## Instalação global
+
+O script instala a TUI e o launcher `konstructor` sem dependências externas. Como root, o padrão é `/usr/local`; como usuário comum, o padrão é `~/.local`. O prefixo pode ser escolhido explicitamente:
+
+```bash
+./install.sh --prefix "$HOME/.local"
+./install.sh --dry-run --prefix /usr/local
+./install.sh --uninstall --prefix "$HOME/.local"
+```
+
+Depois da instalação:
+
+```bash
+konstructor tui /caminho/kodoo --theme high-contrast
+```
+
+## Acesso via Web Terminal
+
+O comando `web` expõe a mesma camada de comandos da TUI por HTTP e SSE, sem duplicar o workflow. Por segurança, o padrão escuta apenas em `127.0.0.1`; use `--host 0.0.0.0` somente quando o acesso remoto estiver protegido pela rede, túnel SSH ou proxy autenticado:
+
+```bash
+konstructor web /caminho/kodoo --host 127.0.0.1 --port 8765
+```
+
+Abra `http://127.0.0.1:8765/`. O navegador recebe atualizações de workspace, diff e logs pelo endpoint `/events`; comandos são enviados por `/action` e teclas por `/input`. A aplicação continua exigindo `approve: true` para aplicar changesets.
+
+## Atalhos configuráveis
+
+Crie `~/.konstructor/tui.json` ou passe `--config /caminho/tui.json` para `tui`/`web`:
+
+```json
+{
+  "theme": "high-contrast",
+  "refresh_ms": 200,
+  "shortcuts": {
+    "quit": "x",
+    "next_view": "v",
+    "logs_view": "l",
+    "execute": "ENTER"
+  }
+}
+```
+
+Atalhos válidos: `up`, `down`, `execute`, `quit`, `next_view`, `workspace_view`, `diff_view`, `logs_view`, `split_view`, `page_up` e `page_down`. Teclas especiais usam `UP`, `DOWN`, `ENTER`, `TAB`, `PAGEUP` e `PAGEDOWN`.
+
+Por padrão, o estado fica em `~/.konstructor`, nunca dentro do workspace-alvo. Use `KONSTRUCTOR_HOME` para testes ou isolamento.
+
+## Arquitetura
+
+`cli` apenas traduz comandos; `workflow` orquestra estados; `repository` contém descoberta e o adaptador Kodoo; `planner` produz planos rastreáveis; `staging` e `safety` protegem arquivos; `validator` executa apenas checks allowlisted; `provider` define a fronteira independente de IA.
+
+O primeiro provedor é determinístico e local. A interface `LLMProvider` aceita adaptadores futuros sem importar SDK específico no núcleo.
+# konstructor
