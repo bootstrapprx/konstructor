@@ -31,6 +31,21 @@ python -m konstructor web /caminho/kodoo --host 0.0.0.0 --port 8765
 
 Configure `KONSTRUCTOR_LLM_BASE_URL`, `KONSTRUCTOR_LLM_MODEL` e, quando exigido, `KONSTRUCTOR_LLM_API_KEY` no ambiente. O padrão do endpoint é `https://api.openai.com/v1`; tokens nunca são gravados na configuração. `konstructor provider status` verifica a configuração e `konstructor app wizard --llm` usa saída JSON estruturada para enriquecer o resumo. O modo local continua disponível sem credenciais.
 
+## Roadmap dinâmico
+
+Importe a planilha herdada uma vez. O Konstructor guarda snapshot, hash, abas e linhas em SQLite sob `~/.konstructor/workspaces/`; alterações de estado/evidência ficam como histórico separado, e os status herdados continuam preservados como referência não verificada. Depois da importação, use a base do Konstructor em vez de editar a planilha:
+
+```bash
+konstructor roadmap import /mnt/toshiba/git/kodoo context/kodoo-roadmap.xlsx
+konstructor roadmap dashboard /mnt/toshiba/git/kodoo
+konstructor roadmap list /mnt/toshiba/git/kodoo --sheet Roadmap --priority P0
+konstructor roadmap show /mnt/toshiba/git/kodoo RM-003
+konstructor roadmap update /mnt/toshiba/git/kodoo RM-003 --status 'Em andamento' --evidence 'crates/kodoo-core; cargo test -p kodoo-core'
+konstructor roadmap export /mnt/toshiba/git/kodoo /tmp/kodoo-roadmap-backup.json
+```
+
+Reimportar uma revisão da planilha cria um novo snapshot e o torna ativo; snapshots e histórico anteriores são mantidos. A planilha de origem não é apagada automaticamente.
+
 Para editar arquivos existentes, selecione explicitamente os caminhos que o modelo poderá alterar:
 
 ```bash

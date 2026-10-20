@@ -19,6 +19,7 @@ from konstructor.wizard import create_module_proposal
 from konstructor.wizard import create_app_proposal, load_proposal, validate_proposal, apply_app_proposal
 from konstructor.provider import OpenAICompatibleProvider
 from konstructor.provider import _validate_schema
+from konstructor.roadmap import import_workbook, list_records, show_record, update_record, dashboard, export_json
 
 class GeneratorTests(unittest.TestCase):
     def setUp(self):
@@ -232,6 +233,27 @@ class GeneratorTests(unittest.TestCase):
             self.assertEqual(received["body"]["model"], "test-model")
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+    def test_roadmap_import_preserves_records_and_tracks_updates(self):
+        from zipfile import ZipFile
+        book = self.repo / "roadmap.xlsx"
+        with ZipFile(book, "w") as z:
+            z.writestr("xl/workbook.xml", '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="Roadmap" sheetId="1" r:id="rId1"/></sheets></workbook>')
+            z.writestr("xl/_rels/workbook.xml.rels", '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml"/></Relationships>')
+            z.writestr("xl/worksheets/sheet1.xml", '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData><row r="5"><c r="A5" t="inlineStr"><is><t>ID</t></is></c><c r="F5" t="inlineStr"><is><t>Priority</t></is></c><c r="M5" t="inlineStr"><is><t>Current Status</t></is></c></row><row r="6"><c r="A6" t="inlineStr"><is><t>RM-001</t></is></c><c r="F6" t="inlineStr"><is><t>P0</t></is></c><c r="M6" t="inlineStr"><is><t>A validar</t></is></c></row></sheetData></worksheet>')
+        imported = import_workbook(self.repo, book)
+        self.assertEqual(imported["sheets"], 1)
+        self.assertEqual(len(list_records(self.repo, "Roadmap")), 1)
+        self.assertEqual(show_record(self.repo, "RM-001")["data"]["Current Status"], "A validar")
+        updated = update_record(self.repo, "RM-001", "Em andamento", "tests/roadmap.sql")
+        self.assertEqual(updated["current"]["status"], "Em andamento")
+        update_record(self.repo, "RM-001", None, None, "audit note")
+        self.assertEqual(show_record(self.repo, "RM-001")["current"]["evidence"], "tests/roadmap.sql")
+        import_workbook(self.repo, book)
+        self.assertEqual(show_record(self.repo, "RM-001")["current"]["status"], "Em andamento")
+        self.assertEqual(dashboard(self.repo)["p0_open"], 1)
+        backup = export_json(self.repo, self.repo / "backup.json")
+        self.assertTrue(backup.is_file())
 
     def test_tui_commands_execute_through_the_same_workflow(self):
         app = GeneratorTUI(self.repo)
