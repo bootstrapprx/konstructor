@@ -25,6 +25,12 @@ python -m konstructor web /caminho/kodoo --host 0.0.0.0 --port 8765
 
 `app wizard` orienta a criação manual de um módulo Kodoo (incluindo decisão sobre Direct) e salva uma proposta no estado local. Ele não modifica o workspace; o scaffold oficial continua sendo `python3 scripts/standard.py new <slug>` depois de revisar a proposta.
 
+`app wizard --apply` exige terminal interativo e confirmação digitando `APPLY`, e então delega ao scaffold oficial. `app review <workspace> <proposal-id>` reabre a proposta. `app new-app` registra requisitos de um app Dioxus, mas não cria arquivos: Kodoo ainda não tem template/comando oficial para esse caso.
+
+## Provedor OpenAI-compatible
+
+Configure `KONSTRUCTOR_LLM_BASE_URL`, `KONSTRUCTOR_LLM_MODEL` e, quando exigido, `KONSTRUCTOR_LLM_API_KEY` no ambiente. O padrão do endpoint é `https://api.openai.com/v1`; tokens nunca são gravados na configuração. `konstructor provider status` verifica a configuração e `konstructor app wizard --llm` usa saída JSON estruturada para enriquecer o resumo. O modo local continua disponível sem credenciais.
+
 ## Interface TUI
 
 `tui` abre uma interface interativa baseada em `curses`. Use as setas para escolher `Inspect`, `Index`, `Plan`, `Generate`, `Validate`, `Diff`, `Apply` ou `Status`, e pressione Enter para executar. O diff é somente leitura e a aplicação exige digitar `sim` na confirmação da própria tela. `q` sai sem alterar o workspace.

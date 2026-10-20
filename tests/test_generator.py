@@ -16,6 +16,9 @@ from konstructor.tui import COMMANDS, GeneratorTUI, LiveLogBuffer, TUILogHandler
 from konstructor.config import load_tui_config
 from konstructor.web_terminal import WebTerminalApp, WebTerminalServer, make_server
 from konstructor.wizard import create_module_proposal
+from konstructor.wizard import create_app_proposal, load_proposal
+from konstructor.provider import OpenAICompatibleProvider
+from konstructor.provider import _validate_schema
 
 class GeneratorTests(unittest.TestCase):
     def setUp(self):
@@ -145,6 +148,43 @@ class GeneratorTests(unittest.TestCase):
         self.assertEqual(result["path"], "modules/inventory")
         self.assertFalse(result["writes_target"])
         self.assertFalse((self.repo / "modules/inventory").exists())
+        loaded = load_proposal(self.repo, result["proposal_id"])
+        self.assertEqual(loaded["name"], "inventory")
+
+    def test_new_app_wizard_is_honest_about_no_scaffold_and_does_not_write(self):
+        (self.repo / "apps").mkdir(exist_ok=True)
+        (self.repo / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+        proposal = create_app_proposal(self.repo, "reporting", "Relatórios de operação")
+        self.assertEqual(proposal["status"], "proposal-only")
+        self.assertFalse((self.repo / proposal["path"]).exists())
+
+    def test_provider_structured_schema_validation(self):
+        schema = {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"], "additionalProperties": False}
+        _validate_schema({"title": "ok"}, schema)
+        with self.assertRaisesRegex(RuntimeError, "missing required"):
+            _validate_schema({}, schema)
+
+    def test_provider_posts_openai_compatible_request(self):
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        import json as json_module
+        received = {}
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):
+                received["body"] = json_module.loads(self.rfile.read(int(self.headers["Content-Length"])))
+                body = json_module.dumps({"choices": [{"message": {"content": '{"ok":true}'}}]}).encode()
+                self.send_response(200); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
+            def log_message(self, *args): pass
+        try:
+            server = HTTPServer(("127.0.0.1", 0), Handler)
+        except PermissionError as exc:
+            self.skipTest(f"sandbox bloqueia sockets locais: {exc}")
+        thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
+        try:
+            provider = OpenAICompatibleProvider(f"http://127.0.0.1:{server.server_port}/v1", "test-model", "secret")
+            self.assertEqual(provider.complete_structured("hello", {"type": "object"}), {"ok": True})
+            self.assertEqual(received["body"]["model"], "test-model")
+        finally:
+            server.shutdown(); server.server_close(); thread.join(timeout=2)
 
     def test_tui_commands_execute_through_the_same_workflow(self):
         app = GeneratorTUI(self.repo)
