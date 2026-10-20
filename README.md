@@ -9,6 +9,7 @@ O gerador nunca escreve no workspace-alvo durante `inspect`, `index`, `plan`, `g
 ## Uso rápido
 
 ```bash
+python -m konstructor app wizard /mnt/toshiba/git/kodoo
 python -m konstructor inspect /caminho/kodoo --json
 python -m konstructor index /caminho/kodoo
 python -m konstructor plan /caminho/kodoo "criar módulo de contratos" --output PLAN.md
@@ -21,6 +22,8 @@ python -m konstructor tui /caminho/kodoo --theme high-contrast
 python -m konstructor tui /caminho/kodoo --theme /caminho/meu-tema.json
 python -m konstructor web /caminho/kodoo --host 0.0.0.0 --port 8765
 ```
+
+`app wizard` orienta a criação manual de um módulo Kodoo (incluindo decisão sobre Direct) e salva uma proposta no estado local. Ele não modifica o workspace; o scaffold oficial continua sendo `python3 scripts/standard.py new <slug>` depois de revisar a proposta.
 
 ## Interface TUI
 

@@ -15,6 +15,7 @@ from konstructor.themes import Theme, load_theme
 from konstructor.tui import COMMANDS, GeneratorTUI, LiveLogBuffer, TUILogHandler, TABS
 from konstructor.config import load_tui_config
 from konstructor.web_terminal import WebTerminalApp, WebTerminalServer, make_server
+from konstructor.wizard import create_module_proposal
 
 class GeneratorTests(unittest.TestCase):
     def setUp(self):
@@ -24,7 +25,7 @@ class GeneratorTests(unittest.TestCase):
         (self.repo / "modules/people/src").mkdir(parents=True)
         (self.repo / "modules/people/Cargo.toml").write_text('[package]\nname = "people"\n', encoding="utf-8")
         (self.repo / "modules/people/src/lib.rs").write_text('pub struct Person;\npub fn create_person() {}\n', encoding="utf-8")
-        (self.repo / "modules/_template").mkdir(parents=True); (self.repo / "scripts").mkdir()
+        (self.repo / "modules/_template").mkdir(parents=True, exist_ok=True); (self.repo / "scripts").mkdir()
         (self.repo / "scripts/standard.py").write_text('# standard', encoding="utf-8")
     def tearDown(self): self.tmp.cleanup()
     def test_inspect_and_index_have_source_evidence(self):
@@ -135,6 +136,15 @@ class GeneratorTests(unittest.TestCase):
     def test_remote_web_bind_is_rejected(self):
         with self.assertRaisesRegex(PermissionError, "loopback"):
             make_server("0.0.0.0", 8765, self.repo)
+
+    def test_manual_module_wizard_proposes_without_writing_target(self):
+        (self.repo / "scripts").mkdir(exist_ok=True)
+        (self.repo / "scripts/standard.py").write_text("# scaffold", encoding="utf-8")
+        (self.repo / "modules/_template").mkdir(parents=True, exist_ok=True)
+        result = create_module_proposal(self.repo, "inventory", "Gerenciar estoque", "yes")
+        self.assertEqual(result["path"], "modules/inventory")
+        self.assertFalse(result["writes_target"])
+        self.assertFalse((self.repo / "modules/inventory").exists())
 
     def test_tui_commands_execute_through_the_same_workflow(self):
         app = GeneratorTUI(self.repo)

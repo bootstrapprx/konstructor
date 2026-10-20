@@ -20,6 +20,8 @@ def main(argv=None):
     for name in ("inspect","index"): 
         q=sub.add_parser(name); q.add_argument("path", nargs="?", default=".")
     q=sub.add_parser("plan"); q.add_argument("path"); q.add_argument("request"); q.add_argument("--output")
+    app=sub.add_parser("app", help="assistente para criação manual de módulo Kodoo"); appsub=app.add_subparsers(dest="app_command", required=True)
+    wizard=appsub.add_parser("wizard", help="coletar decisões e salvar proposta de criação"); wizard.add_argument("path", nargs="?", default="/mnt/toshiba/git/kodoo"); wizard.add_argument("--name", help="nome ou slug do módulo"); wizard.add_argument("--summary", help="objetivo do módulo"); wizard.add_argument("--direct", choices=("yes", "no"), help="se terá superfície de produto Dioxus Direct")
     q=sub.add_parser("generate"); q.add_argument("path"); q.add_argument("plan_id")
     for name in ("validate","diff","apply"): 
         q=sub.add_parser(name); q.add_argument("path"); q.add_argument("changeset_id")
@@ -34,6 +36,10 @@ def main(argv=None):
         elif args.command=="index": emit(KodooRepositoryAdapter(args.path).index(),args.json)
         elif args.command=="plan":
             adapter=KodooRepositoryAdapter(args.path); catalog=adapter.index(); plan=make_plan(adapter.root,args.request,catalog); out=write_plan(adapter.root,plan,args.output); emit({"plan_id":plan.id,"path":str(out),"questions":plan.questions},args.json)
+        elif args.command=="app":
+            from .wizard import create_module_proposal
+            proposal=create_module_proposal(args.path, args.name, args.summary, args.direct, interactive=sys.stdin.isatty())
+            emit(proposal,args.json)
         elif args.command=="generate":
             cs=generate(Path(args.path),args.plan_id); emit({"changeset_id":cs.id,"staging":cs.staging,"files":cs.files},args.json)
         elif args.command=="validate": emit(validate(Path(args.path),args.changeset_id),args.json)
