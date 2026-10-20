@@ -23,9 +23,10 @@ def main(argv=None):
     q=sub.add_parser("plan"); q.add_argument("path"); q.add_argument("request"); q.add_argument("--output")
     app=sub.add_parser("app", help="assistente para criação manual de módulo Kodoo"); appsub=app.add_subparsers(dest="app_command", required=True)
     wizard=appsub.add_parser("wizard", help="coletar decisões e salvar proposta de criação"); wizard.add_argument("path", nargs="?", default="/mnt/toshiba/git/kodoo"); wizard.add_argument("--name", help="nome ou slug do módulo"); wizard.add_argument("--summary", help="objetivo do módulo"); wizard.add_argument("--direct", choices=("yes", "no"), help="se terá superfície de produto Dioxus Direct"); wizard.add_argument("--llm", action="store_true"); wizard.add_argument("--apply", action="store_true")
-    appsub.add_parser("new-app", help="propor um app Dioxus novo (sem scaffold oficial disponível)").add_argument("path", nargs="?", default="/mnt/toshiba/git/kodoo")
+    appsub.add_parser("new-app", help="criar proposta de scaffold para app Dioxus").add_argument("path", nargs="?", default="/mnt/toshiba/git/kodoo")
     appsub.choices["new-app"].add_argument("--name"); appsub.choices["new-app"].add_argument("--summary")
-    review=appsub.add_parser("review", help="mostrar proposta salva"); review.add_argument("path"); review.add_argument("proposal_id")
+    for action in ("review", "diff", "validate", "apply"):
+        item=appsub.add_parser(action, help=f"{action} app proposal"); item.add_argument("path"); item.add_argument("proposal_id")
     provider=sub.add_parser("provider", help="LLM provider status and structured generation"); provider.add_argument("action", choices=("status", "complete")); provider.add_argument("--prompt"); provider.add_argument("--schema", help="JSON schema inline"); provider.add_argument("--model"); provider.add_argument("--base-url")
     q=sub.add_parser("generate"); q.add_argument("path"); q.add_argument("plan_id")
     for name in ("validate","diff","apply"): 
@@ -45,7 +46,7 @@ def main(argv=None):
         elif args.command=="plan":
             adapter=KodooRepositoryAdapter(args.path); catalog=adapter.index(); plan=make_plan(adapter.root,args.request,catalog); out=write_plan(adapter.root,plan,args.output); emit({"plan_id":plan.id,"path":str(out),"questions":plan.questions},args.json)
         elif args.command=="app":
-            from .wizard import create_app_proposal, create_module_proposal, load_proposal, validate_proposal
+            from .wizard import create_app_proposal, create_module_proposal, load_proposal, validate_proposal, apply_app_proposal
             if args.app_command == "wizard":
                 proposal=create_module_proposal(args.path, args.name, args.summary, args.direct, interactive=sys.stdin.isatty())
                 if args.llm:
@@ -71,6 +72,16 @@ def main(argv=None):
             else:
                 proposal=load_proposal(args.path,args.proposal_id)
                 proposal["validation"]=validate_proposal(proposal)
+                if args.app_command == "diff":
+                    emit({"diff": proposal.get("diff", "")}, args.json); return 0
+                if args.app_command == "validate":
+                    emit(proposal["validation"], args.json); return 0
+                if args.app_command == "apply":
+                    if not proposal["validation"]["passed"]: raise RuntimeError("proposta inválida ou stale")
+                    if not sys.stdin.isatty(): raise PermissionError("app apply exige aprovação interativa")
+                    print(proposal.get("diff", ""))
+                    if input("Aplicar exatamente este diff? Digite APPLY: ") != "APPLY": raise PermissionError("aprovação não confirmada")
+                    emit({"applied": apply_app_proposal(proposal, True)}, args.json); return 0
                 emit(proposal,args.json)
                 return 0
             emit(proposal,args.json)

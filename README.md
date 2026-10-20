@@ -25,7 +25,7 @@ python -m konstructor web /caminho/kodoo --host 0.0.0.0 --port 8765
 
 `app wizard` orienta a criação manual de um módulo Kodoo (incluindo decisão sobre Direct) e salva uma proposta no estado local. Ele não modifica o workspace; o scaffold oficial continua sendo `python3 scripts/standard.py new <slug>` depois de revisar a proposta.
 
-`app wizard --apply` exige terminal interativo e confirmação digitando `APPLY`, e então delega ao scaffold oficial. `app review <workspace> <proposal-id>` reabre a proposta. `app new-app` registra requisitos de um app Dioxus, mas não cria arquivos: Kodoo ainda não tem template/comando oficial para esse caso.
+`app wizard --apply` exige terminal interativo e confirmação digitando `APPLY`, e então delega ao scaffold oficial. `app review <workspace> <proposal-id>` reabre a proposta. `app new-app` prepara um app Dioxus mínimo (tela inicial, CSS, configuração e teste SSR), propõe sua inclusão no workspace Cargo e salva um diff revisável. Use `app diff`, `app validate` e `app apply`; a aplicação exige confirmação interativa digitando `APPLY`. O scaffold não liga módulos Direct automaticamente: isso depende das escolhas de produto do app.
 
 ## Provedor OpenAI-compatible
 

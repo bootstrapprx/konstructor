@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+import difflib
+import hashlib
+import json
 from pathlib import Path
 
 from .safety import ensure_root
-from .state import save_json
-from .state import load_json
+from .state import save_json, load_json, workspace_dir
 from .safety import file_hash
 
 
@@ -56,6 +58,13 @@ def create_app_proposal(root: str | Path, name: str | None, summary: str | None,
     root = ensure_root(root)
     if not (root / "Cargo.toml").is_file() or not (root / "apps").is_dir():
         raise ValueError(f"alvo não parece workspace Kodoo com diretório apps: {root}")
+    try:
+        import tomllib
+        cargo = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError("Cargo.toml inválido") from exc
+    if not isinstance(cargo.get("workspace", {}).get("members"), list):
+        raise ValueError("Cargo.toml precisa declarar [workspace].members como lista")
     if interactive:
         print(f"Konstructor · wizard de app\nAlvo: {root}")
         name = name or _ask("Nome do app (slug)")
@@ -68,12 +77,14 @@ def create_app_proposal(root: str | Path, name: str | None, summary: str | None,
         raise ValueError("informe o objetivo do app")
     if (root / "apps" / name).exists():
         raise ValueError(f"destino já existe: apps/{name}")
+    proposal_id = hashlib.sha256(f"{root}:app:{name}:{summary}".encode()).hexdigest()[:12]
     proposal = {"kind": "dioxus-app", "workspace": str(root), "name": name,
                 "path": f"apps/{name}", "summary": summary, "writes_target": False,
-                "status": "proposal-only", "reason": "Kodoo não define template/comando oficial para criar apps novos",
-                "base_hash": file_hash(root / "Cargo.toml")}
+                "status": "proposed", "template_version": 1,
+                "base_hash": file_hash(root / "Cargo.toml"), "proposal_id": f"app-proposal-{name}"}
+    proposal["artifacts"] = _app_artifacts(name, summary)
+    proposal["diff"] = _proposal_diff(root, proposal)
     proposal_path = save_json(root, f"app-proposal-{name}.json", proposal)
-    proposal["proposal_id"] = proposal_path.stem
     save_json(root, f"{proposal_path.stem}.json", proposal)
     return proposal
 
@@ -98,5 +109,83 @@ def validate_proposal(proposal: dict) -> dict:
     if proposal["kind"] == "kodoo-module":
         result["template_present"] = (root / "modules/_template").is_dir()
         result["scaffold_present"] = (root / "scripts/standard.py").is_file()
+    else:
+        members = _workspace_members(manifest.read_text(encoding="utf-8"))
+        result["workspace_member_absent"] = proposal["path"] not in members
+        result["artifacts_safe"] = all(not Path(rel).is_absolute() and ".." not in Path(rel).parts for rel in proposal["artifacts"])
+        result["diff_current"] = proposal.get("diff") == _proposal_diff(root, proposal)
     result["passed"] = all(result.values())
     return result
+
+
+def _workspace_members(text: str) -> list[str]:
+    import tomllib
+    return tomllib.loads(text).get("workspace", {}).get("members", [])
+
+
+def _app_artifacts(name: str, summary: str) -> dict[str, str]:
+    title = " ".join(part.capitalize() for part in name.split("-"))
+    escaped = json.dumps(summary, ensure_ascii=False)
+    return {
+        f"apps/{name}/Cargo.toml": f'''[package]\nname = "{name}"\nversion.workspace = true\nedition.workspace = true\n\n[dependencies]\ndioxus = {{ workspace = true, features = ["router", "lib", "launch", "desktop", "asset"] }}\n\n[features]\ndefault = ["desktop"]\ndesktop = ["dioxus/desktop"]\nweb = ["dioxus/web"]\nmobile = ["dioxus/mobile"]\n\n[dev-dependencies]\ndioxus-ssr = "0.7"\n''',
+        f"apps/{name}/Dioxus.toml": f'''[application]\nname = "{title}"\ndefault_platform = "desktop"\nasset_dir = "assets"\n''',
+        f"apps/{name}/src/main.rs": f'''fn main() {{\n    dioxus::launch({name.replace('-', '_')}::App);\n}}\n''',
+        f"apps/{name}/src/lib.rs": f'''use dioxus::prelude::*;\n\nconst SUMMARY: &str = {escaped};\nstatic MAIN_CSS: Asset = asset!("/assets/main.css");\n\n#[component]\npub fn App() -> Element {{\n    rsx! {{\n        document::Meta {{ name: "viewport", content: "width=device-width, initial-scale=1" }}\n        document::Stylesheet {{ href: MAIN_CSS }}\n        main {{ class: "app-shell",\n            p {{ class: "eyebrow", "KODOO APP" }}\n            h1 {{ "{title}" }}\n            p {{ "{{SUMMARY}}" }}\n        }}\n    }}\n}}\n''',
+        f"apps/{name}/assets/main.css": ":root { font-family: system-ui, sans-serif; color: #172033; background: #f5f7fb; }\nbody { margin: 0; }\n.app-shell { max-width: 72rem; margin: 4rem auto; padding: 2rem; }\n.eyebrow { color: #475569; font-size: .75rem; letter-spacing: .12em; }\n",
+        f"apps/{name}/tests/render.rs": f'''use dioxus::prelude::*;\nuse {name.replace('-', '_')}::App;\n\n#[test]\nfn renders_app_name_and_summary() {{\n    let mut dom = VirtualDom::new(App);\n    dom.rebuild_in_place();\n    let html = dioxus_ssr::render(&dom);\n    assert!(html.contains("{title}"));\n    assert!(html.contains({escaped}.trim_matches('"')));\n}}\n''',
+    }
+
+
+def _proposal_diff(root: Path, proposal: dict) -> str:
+    manifest = root / "Cargo.toml"
+    text = manifest.read_text(encoding="utf-8")
+    import tomllib
+    data = tomllib.loads(text)
+    members = data.get("workspace", {}).get("members", [])
+    updated = text
+    if proposal["path"] not in members:
+        updated = _add_workspace_member(updated, proposal["path"])
+    pieces = list(difflib.unified_diff(text.splitlines(True), updated.splitlines(True), fromfile="a/Cargo.toml", tofile="b/Cargo.toml"))
+    for rel, content in proposal["artifacts"].items():
+        pieces.extend(difflib.unified_diff([], content.splitlines(True), fromfile="/dev/null", tofile=f"b/{rel}"))
+    return "".join(pieces)
+
+
+def apply_app_proposal(proposal: dict, approved: bool) -> list[str]:
+    if not approved: raise PermissionError("aplicação exige aprovação explícita")
+    checks = validate_proposal(proposal)
+    if not checks["passed"]: raise RuntimeError(f"proposta inválida ou stale: {checks}")
+    root = ensure_root(proposal["workspace"])
+    manifest = root / "Cargo.toml"
+    original = manifest.read_bytes()
+    updated = _add_workspace_member(original.decode("utf-8"), proposal["path"])
+    applied: list[Path] = []
+    manifest_written = False
+    try:
+        for rel, content in proposal["artifacts"].items():
+            path = root / rel
+            if path.exists(): raise FileExistsError(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temp = path.with_suffix(path.suffix + ".konstructor-tmp")
+            temp.write_text(content, encoding="utf-8")
+            temp.replace(path)
+            applied.append(path)
+        temp_manifest = manifest.with_suffix(".Cargo.toml.konstructor-tmp")
+        temp_manifest.write_text(updated, encoding="utf-8")
+        temp_manifest.replace(manifest)
+        manifest_written = True
+    except Exception:
+        if manifest_written: manifest.write_bytes(original)
+        for path in reversed(applied): path.unlink(missing_ok=True)
+        raise
+    save_json(root, f"{proposal['proposal_id']}.json", {**proposal, "status": "applied"})
+    return [str(p.relative_to(root)) for p in applied] + ["Cargo.toml"]
+
+
+def _add_workspace_member(text: str, member: str) -> str:
+    marker = "members = ["
+    at = text.find(marker)
+    if at < 0: raise ValueError("Cargo.toml sem [workspace].members editável")
+    end = text.find("]", at + len(marker))
+    if end < 0: raise ValueError("lista [workspace].members inválida")
+    return text[:end] + f'    "{member}",\n' + text[end:]

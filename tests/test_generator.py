@@ -16,7 +16,7 @@ from konstructor.tui import COMMANDS, GeneratorTUI, LiveLogBuffer, TUILogHandler
 from konstructor.config import load_tui_config
 from konstructor.web_terminal import WebTerminalApp, WebTerminalServer, make_server
 from konstructor.wizard import create_module_proposal
-from konstructor.wizard import create_app_proposal, load_proposal
+from konstructor.wizard import create_app_proposal, load_proposal, validate_proposal, apply_app_proposal
 from konstructor.provider import OpenAICompatibleProvider
 from konstructor.provider import _validate_schema
 
@@ -153,10 +153,21 @@ class GeneratorTests(unittest.TestCase):
 
     def test_new_app_wizard_is_honest_about_no_scaffold_and_does_not_write(self):
         (self.repo / "apps").mkdir(exist_ok=True)
-        (self.repo / "Cargo.toml").write_text("[workspace]\n", encoding="utf-8")
+        (self.repo / "Cargo.toml").write_text('[workspace]\nmembers = []\n', encoding="utf-8")
         proposal = create_app_proposal(self.repo, "reporting", "Relatórios de operação")
-        self.assertEqual(proposal["status"], "proposal-only")
+        self.assertEqual(proposal["status"], "proposed")
         self.assertFalse((self.repo / proposal["path"]).exists())
+
+    def test_app_proposal_review_validate_and_approved_apply(self):
+        (self.repo / "apps").mkdir(exist_ok=True)
+        (self.repo / "Cargo.toml").write_text('[workspace]\nmembers = [\n]\n[workspace.package]\nversion = "0.1.0"\nedition = "2024"\n[workspace.dependencies]\ndioxus = { version = "0.7", default-features = false }\n', encoding="utf-8")
+        proposal = create_app_proposal(self.repo, "reporting", "Relatórios de operação")
+        self.assertTrue(validate_proposal(proposal)["passed"])
+        with self.assertRaises(PermissionError): apply_app_proposal(proposal, False)
+        changed = apply_app_proposal(proposal, True)
+        self.assertIn("Cargo.toml", changed)
+        self.assertTrue((self.repo / "apps/reporting/src/lib.rs").is_file())
+        self.assertIn('"apps/reporting"', (self.repo / "Cargo.toml").read_text())
 
     def test_provider_structured_schema_validation(self):
         schema = {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"], "additionalProperties": False}
