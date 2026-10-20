@@ -1,5 +1,5 @@
 from __future__ import annotations
-import difflib, hashlib, json, shutil, subprocess, tempfile
+import difflib, hashlib, json, shutil, subprocess, tempfile, os
 from pathlib import Path
 from .models import ChangeSet, CheckResult
 from .planner import slugify
@@ -32,6 +32,42 @@ def generate(root: Path, plan_id: str) -> ChangeSet:
     save_json(root, f"changeset-{cid}.json", {**cs.__dict__, "artifact_hashes": hashes, "checks": []})
     return cs
 
+
+def stage_edits(root: Path, request: str, files: list[str], provider) -> ChangeSet:
+    """Ask a provider to edit only explicitly selected existing files."""
+    root = ensure_root(root)
+    if not files: raise ValueError("selecione ao menos um arquivo para editar")
+    sources = {}
+    for rel in files:
+        target = safe_relative(root, rel)
+        if not target.is_file(): raise ValueError(f"arquivo para edição não existe: {rel}")
+        sources[rel] = target.read_text(encoding="utf-8")
+    schema = {"type":"object", "properties":{"files":{"type":"array", "items":{"type":"object", "properties":{"path":{"type":"string"},"content":{"type":"string"}},"required":["path","content"],"additionalProperties":False}}}, "required":["files"], "additionalProperties":False}
+    output = provider.complete_structured(json.dumps({"request": request, "source_files": sources}, ensure_ascii=False), schema)
+    changes = output["files"]
+    if not changes: raise RuntimeError("provider não retornou alterações")
+    contents = {}
+    for change in changes:
+        rel = change["path"]
+        if rel not in sources: raise SafetyError(f"provider tentou editar arquivo não selecionado: {rel}")
+        if rel in contents: raise ValueError(f"provider retornou arquivo duplicado: {rel}")
+        contents[rel] = change["content"]
+    if set(contents) != set(sources): raise ValueError("provider deve retornar exatamente os arquivos selecionados")
+    plan_id = hashlib.sha256(f"{root}:{request}:{','.join(files)}".encode()).hexdigest()[:12]
+    cid = hashlib.sha256(f"edit:{plan_id}".encode()).hexdigest()[:12]
+    staging = workspace_dir(root) / "staging" / cid
+    if staging.exists(): shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    items = []
+    for rel, content in contents.items():
+        out = staging / rel; out.parent.mkdir(parents=True, exist_ok=True); out.write_text(content, encoding="utf-8")
+        items.append({"path": rel, "action": "modify", "reason": request})
+    hashes = {rel:file_hash(staging / rel) for rel in contents}
+    base = {rel:file_hash(safe_relative(root, rel)) for rel in contents}
+    cs = {"id":cid,"workspace":str(root),"plan_id":plan_id,"staging":str(staging),"files":items,"base_hashes":base,"artifact_hashes":hashes,"checks":[]}
+    save_json(root, f"changeset-{cid}.json", cs)
+    return ChangeSet(**{k:v for k,v in cs.items() if k in ChangeSet.__dataclass_fields__})
+
 def load_changeset(root: Path, cid: str) -> dict:
     return load_json(ensure_root(root), f"changeset-{cid}.json")
 
@@ -51,10 +87,25 @@ def validate(root: Path, cid: str) -> dict:
         staged=Path(cs["staging"])/item["path"]
         checks.append(CheckResult("staging-file", "passed" if staged.is_file() else "failed", summary="arquivo presente em staging").__dict__)
     cargo=shutil.which("cargo")
-    if cargo:
-        p=subprocess.run([cargo,"fmt","--all","--","--check"],cwd=root,text=True,capture_output=True)
-        checks.append(CheckResult("cargo-fmt", "passed" if p.returncode==0 else "failed", "cargo fmt --all -- --check", p.stdout[-1000:]+p.stderr[-1000:], p.returncode).__dict__)
-    else: checks.append(CheckResult("cargo-fmt", "blocked", "cargo fmt --all -- --check", "cargo não disponível no ambiente").__dict__)
+    is_cargo_workspace = (root / "Cargo.toml").is_file() and "[workspace]" in (root / "Cargo.toml").read_text(encoding="utf-8", errors="replace")
+    if cargo and is_cargo_workspace:
+        try:
+            with tempfile.TemporaryDirectory(prefix="konstructor-validate-") as tmp:
+                isolated = Path(tmp) / "workspace"
+                shutil.copytree(root, isolated, ignore=shutil.ignore_patterns(".git", "target", "node_modules", ".venv", "__pycache__"))
+                for item in cs["files"]:
+                    rel = item["path"]
+                    staged = Path(cs["staging"]) / rel
+                    target = safe_relative(isolated, rel)
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copyfile(staged, target)
+                p=subprocess.run([cargo,"fmt","--all","--","--check"],cwd=isolated,text=True,capture_output=True,timeout=60,env={**os.environ,"CARGO_TARGET_DIR":str(Path(tmp)/"target"),"CARGO_NET_OFFLINE":"true"})
+                checks.append(CheckResult("cargo-fmt", "passed" if p.returncode==0 else "failed", "cargo fmt --all -- --check (isolated)", p.stdout[-1000:]+p.stderr[-1000:], p.returncode).__dict__)
+        except subprocess.TimeoutExpired as exc:
+            checks.append(CheckResult("cargo-fmt", "blocked", "cargo fmt --all -- --check (isolated)", f"timeout after 60s: {(exc.stderr or b'').decode(errors='replace')[-500:]}").__dict__)
+        except OSError as exc:
+            checks.append(CheckResult("cargo-fmt", "blocked", "cargo fmt --all -- --check (isolated)", str(exc)).__dict__)
+    else: checks.append(CheckResult("cargo-fmt", "blocked", "cargo fmt --all -- --check", "workspace Cargo ou cargo indisponível").__dict__)
     cs["checks"]=checks
     cs["validated_artifact_hashes"] = {item["path"]: file_hash(Path(cs["staging"]) / item["path"]) for item in cs["files"]}
     cs["validated_base_hashes"] = {rel: file_hash(safe_relative(root, rel)) for rel in cs["base_hashes"]}
@@ -74,11 +125,21 @@ def apply(root: Path, cid: str, yes: bool=False) -> list[str]:
         raise RuntimeError("aplicação bloqueada: artefatos staged adulterados")
     for rel, expected in cs["base_hashes"].items():
         if file_hash(safe_relative(root,rel)) != expected: raise RuntimeError(f"conflito: arquivo mudou desde a revisão: {rel}")
-    applied=[]
-    for item in cs["files"]:
-        target=safe_relative(root,item["path"]); source=Path(cs["staging"])/item["path"]; target.parent.mkdir(parents=True,exist_ok=True)
-        if item["action"] == "add" and target.exists(): raise RuntimeError(f"conflito: destino de add já existe: {item['path']}")
-        tmp=target.with_name(target.name+".kodoo-tmp"); shutil.copyfile(source,tmp); tmp.replace(target); applied.append(item["path"])
+    applied=[]; backups={}
+    try:
+        for item in cs["files"]:
+            target=safe_relative(root,item["path"]); source=Path(cs["staging"])/item["path"]
+            if item["action"] == "add" and target.exists(): raise RuntimeError(f"conflito: destino de add já existe: {item['path']}")
+            if item["action"] == "modify" and not target.is_file(): raise RuntimeError(f"conflito: destino de modify ausente: {item['path']}")
+            if item["action"] == "modify": backups[item["path"]] = target.read_bytes()
+            target.parent.mkdir(parents=True,exist_ok=True)
+            tmp=target.with_name(target.name+".konstructor-tmp"); shutil.copyfile(source,tmp); tmp.replace(target); applied.append(item["path"])
+    except Exception:
+        for rel in reversed(applied):
+            target=safe_relative(root, rel)
+            if rel in backups: target.write_bytes(backups[rel])
+            else: target.unlink(missing_ok=True)
+        raise
     cs["approved"]=True; cs["applied"]=True; save_json(root,f"changeset-{cid}.json",cs); return applied
 
 def status(root: Path) -> dict:

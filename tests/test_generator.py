@@ -9,7 +9,7 @@ from pathlib import Path
 
 from konstructor.repository import KodooRepositoryAdapter
 from konstructor.planner import make_plan, write_plan
-from konstructor.workflow import generate, validate, diff, apply
+from konstructor.workflow import generate, validate, diff, apply, stage_edits
 from konstructor.safety import SafetyError, safe_relative
 from konstructor.themes import Theme, load_theme
 from konstructor.tui import COMMANDS, GeneratorTUI, LiveLogBuffer, TUILogHandler, TABS
@@ -174,6 +174,42 @@ class GeneratorTests(unittest.TestCase):
         _validate_schema({"title": "ok"}, schema)
         with self.assertRaisesRegex(RuntimeError, "missing required"):
             _validate_schema({}, schema)
+
+    def test_existing_file_edit_is_staged_and_applied_after_validation(self):
+        source = self.repo / "modules/people/src/lib.rs"
+        class Provider:
+            def complete_structured(self, request, schema):
+                return {"files": [{"path": "modules/people/src/lib.rs", "content": "pub struct Person { pub name: String }\n"}]}
+        cs = stage_edits(self.repo, "Add a name field", ["modules/people/src/lib.rs"], Provider())
+        self.assertEqual(source.read_text(), "pub struct Person;\npub fn create_person() {}\n")
+        self.assertIn("+pub struct Person", diff(self.repo, cs.id))
+        checked = validate(self.repo, cs.id)
+        if checked["validation_passed"]:
+            apply(self.repo, cs.id, yes=True)
+            self.assertIn("pub struct Person", source.read_text())
+        else:
+            self.assertTrue(any(c["status"] in {"blocked", "failed"} for c in checked["checks"]))
+            with self.assertRaisesRegex(RuntimeError, "validação aprovada"):
+                apply(self.repo, cs.id, yes=True)
+
+    def test_edit_provider_cannot_add_unselected_paths(self):
+        class Provider:
+            def complete_structured(self, request, schema):
+                return {"files": [{"path": "../outside", "content": "bad"}]}
+        with self.assertRaisesRegex(SafetyError, "não selecionado"):
+            stage_edits(self.repo, "bad edit", ["modules/people/src/lib.rs"], Provider())
+
+    def test_edit_changeset_rejects_target_change_after_validation(self):
+        source = self.repo / "modules/people/src/lib.rs"
+        class Provider:
+            def complete_structured(self, request, schema):
+                return {"files": [{"path": "modules/people/src/lib.rs", "content": "pub struct Person { pub name: String }\n"}]}
+        cs = stage_edits(self.repo, "add name", ["modules/people/src/lib.rs"], Provider())
+        result = validate(self.repo, cs.id)
+        if not result["validation_passed"]: self.skipTest("isolated Cargo formatting unavailable for fixture")
+        source.write_text("changed after validation", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "alvo mudou"):
+            apply(self.repo, cs.id, yes=True)
 
     def test_provider_posts_openai_compatible_request(self):
         from http.server import BaseHTTPRequestHandler, HTTPServer

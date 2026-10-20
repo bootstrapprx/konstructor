@@ -3,7 +3,7 @@ import argparse, json, sys
 from pathlib import Path
 from .repository import KodooRepositoryAdapter
 from .planner import make_plan, write_plan
-from .workflow import generate, validate, diff, apply, status
+from .workflow import generate, validate, diff, apply, status, stage_edits
 from .state import load_json
 from .provider import OpenAICompatibleProvider
 from .tui import run_tui
@@ -28,6 +28,7 @@ def main(argv=None):
     for action in ("review", "diff", "validate", "apply"):
         item=appsub.add_parser(action, help=f"{action} app proposal"); item.add_argument("path"); item.add_argument("proposal_id")
     provider=sub.add_parser("provider", help="LLM provider status and structured generation"); provider.add_argument("action", choices=("status", "complete")); provider.add_argument("--prompt"); provider.add_argument("--schema", help="JSON schema inline"); provider.add_argument("--model"); provider.add_argument("--base-url")
+    edit=sub.add_parser("edit", help="propor edição de arquivos existentes com LLM"); edit.add_argument("path"); edit.add_argument("request"); edit.add_argument("files", nargs="*"); edit.add_argument("--file", dest="selected_files", action="append", default=[]); edit.add_argument("--model"); edit.add_argument("--base-url")
     q=sub.add_parser("generate"); q.add_argument("path"); q.add_argument("plan_id")
     for name in ("validate","diff","apply"): 
         q=sub.add_parser(name); q.add_argument("path"); q.add_argument("changeset_id")
@@ -91,6 +92,12 @@ def main(argv=None):
             else:
                 if not args.prompt or not args.schema: raise ValueError("complete exige --prompt e --schema")
                 emit(llm.complete_structured(args.prompt, json.loads(args.schema)), args.json)
+        elif args.command=="edit":
+            provider=OpenAICompatibleProvider(args.base_url,args.model)
+            selected=args.files+args.selected_files
+            if not selected: raise ValueError("informe arquivos como argumentos ou com --file")
+            cs=stage_edits(Path(args.path),args.request,selected,provider)
+            emit({"changeset_id":cs.id,"staging":cs.staging,"files":cs.files,"next":"review diff, validate, then apply --yes"},args.json)
         elif args.command=="generate":
             cs=generate(Path(args.path),args.plan_id); emit({"changeset_id":cs.id,"staging":cs.staging,"files":cs.files},args.json)
         elif args.command=="validate": emit(validate(Path(args.path),args.changeset_id),args.json)

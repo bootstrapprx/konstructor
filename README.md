@@ -31,6 +31,18 @@ python -m konstructor web /caminho/kodoo --host 0.0.0.0 --port 8765
 
 Configure `KONSTRUCTOR_LLM_BASE_URL`, `KONSTRUCTOR_LLM_MODEL` e, quando exigido, `KONSTRUCTOR_LLM_API_KEY` no ambiente. O padrão do endpoint é `https://api.openai.com/v1`; tokens nunca são gravados na configuração. `konstructor provider status` verifica a configuração e `konstructor app wizard --llm` usa saída JSON estruturada para enriquecer o resumo. O modo local continua disponível sem credenciais.
 
+Para editar arquivos existentes, selecione explicitamente os caminhos que o modelo poderá alterar:
+
+```bash
+konstructor edit /mnt/toshiba/git/kodoo "adicione tratamento para estado vazio" \
+  --file apps/kalkulisto/src/home.rs --file apps/kalkulisto/tests/navigation.rs
+konstructor diff /mnt/toshiba/git/kodoo CHANGESET_ID
+konstructor validate /mnt/toshiba/git/kodoo CHANGESET_ID
+konstructor apply /mnt/toshiba/git/kodoo CHANGESET_ID --yes
+```
+
+O modelo só pode devolver conteúdo para os arquivos selecionados; alterações fora dessa lista são rejeitadas. A validação é feita numa cópia temporária. Se algum check estiver `failed` ou `blocked`, apply fica bloqueado.
+
 ## Interface TUI
 
 `tui` abre uma interface interativa baseada em `curses`. Use as setas para escolher `Inspect`, `Index`, `Plan`, `Generate`, `Validate`, `Diff`, `Apply` ou `Status`, e pressione Enter para executar. O diff é somente leitura e a aplicação exige digitar `sim` na confirmação da própria tela. `q` sai sem alterar o workspace.
