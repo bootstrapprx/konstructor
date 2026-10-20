@@ -14,7 +14,7 @@ from konstructor.safety import SafetyError, safe_relative
 from konstructor.themes import Theme, load_theme
 from konstructor.tui import COMMANDS, GeneratorTUI, LiveLogBuffer, TUILogHandler, TABS
 from konstructor.config import load_tui_config
-from konstructor.web_terminal import WebTerminalApp, WebTerminalServer
+from konstructor.web_terminal import WebTerminalApp, WebTerminalServer, make_server
 
 class GeneratorTests(unittest.TestCase):
     def setUp(self):
@@ -40,14 +40,30 @@ class GeneratorTests(unittest.TestCase):
         self.assertIn("modules/criar-modulo-de-pessoas/src/domain.rs", [x["path"] for x in cs.files])
     def test_diff_validate_and_apply_require_approval(self):
         plan = make_plan(self.repo, "nova capacidade", KodooRepositoryAdapter(self.repo).index()); write_plan(self.repo, plan); cs = generate(self.repo, plan.id)
-        self.assertIn("+++", diff(self.repo, cs.id)); result = validate(self.repo, cs.id)
+        self.assertIn("+++", diff(self.repo, cs.id))
+        with self.assertRaisesRegex(RuntimeError, "validação aprovada"):
+            apply(self.repo, cs.id, yes=True)
+        result = validate(self.repo, cs.id)
         self.assertTrue(any(x["name"] == "path-policy" and x["status"] == "passed" for x in result["checks"]))
         with self.assertRaises(PermissionError): apply(self.repo, cs.id)
         changed = apply(self.repo, cs.id, yes=True); self.assertTrue(changed and (self.repo / changed[0]).exists())
+
+    def test_staging_tamper_and_add_collision_block_apply(self):
+        plan = make_plan(self.repo, "integridade", KodooRepositoryAdapter(self.repo).index()); write_plan(self.repo, plan); cs = generate(self.repo, plan.id)
+        validate(self.repo, cs.id)
+        staged = Path(cs.staging) / cs.files[0]["path"]
+        staged.write_text("tampered", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "adulterados"):
+            apply(self.repo, cs.id, yes=True)
+        cs = generate(self.repo, plan.id); validate(self.repo, cs.id)
+        target = self.repo / cs.files[0]["path"]; target.parent.mkdir(parents=True, exist_ok=True); target.write_text("existing", encoding="utf-8")
+        with self.assertRaisesRegex(RuntimeError, "conflito"):
+            apply(self.repo, cs.id, yes=True)
     def test_conflict_blocks_apply(self):
         plan = make_plan(self.repo, "conflito", KodooRepositoryAdapter(self.repo).index()); write_plan(self.repo, plan); cs = generate(self.repo, plan.id)
         first = self.repo / cs.files[0]["path"]; first.parent.mkdir(parents=True, exist_ok=True); first.write_text("human edit", encoding="utf-8")
-        with self.assertRaisesRegex(RuntimeError, "conflito"): apply(self.repo, cs.id, yes=True)
+        validate(self.repo, cs.id)
+        with self.assertRaisesRegex(RuntimeError, "alvo mudou"): apply(self.repo, cs.id, yes=True)
     def test_path_traversal_is_rejected(self):
         with self.assertRaises(SafetyError): safe_relative(self.repo, "../outside.txt")
 
@@ -95,7 +111,10 @@ class GeneratorTests(unittest.TestCase):
 
     def test_web_terminal_serves_state_and_commands(self):
         app = WebTerminalApp(self.repo)
-        server = WebTerminalServer(("127.0.0.1", 0), app)
+        try:
+            server = WebTerminalServer(("127.0.0.1", 0), app)
+        except PermissionError as exc:
+            self.skipTest(f"sandbox bloqueia sockets locais: {exc}")
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
         base = f"http://127.0.0.1:{server.server_port}"
         try:
@@ -112,6 +131,10 @@ class GeneratorTests(unittest.TestCase):
             self.assertEqual(app.controller.view, "logs")
         finally:
             server.shutdown(); server.server_close(); thread.join(timeout=2)
+
+    def test_remote_web_bind_is_rejected(self):
+        with self.assertRaisesRegex(PermissionError, "loopback"):
+            make_server("0.0.0.0", 8765, self.repo)
 
     def test_tui_commands_execute_through_the_same_workflow(self):
         app = GeneratorTUI(self.repo)

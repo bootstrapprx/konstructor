@@ -26,7 +26,7 @@ def main(argv=None):
     sub.choices["apply"].add_argument("--yes", action="store_true")
     q=sub.add_parser("status"); q.add_argument("path", nargs="?", default=".")
     q=sub.add_parser("tui", help="abrir interface interativa de terminal"); q.add_argument("path", nargs="?", default="."); q.add_argument("--theme", help="preset (kodoo-dark, high-contrast, mono) ou caminho JSON"); q.add_argument("--config", help="arquivo JSON de configuração da TUI")
-    q=sub.add_parser("web", help="abrir a TUI via Web Terminal HTTP/SSE"); q.add_argument("path", nargs="?", default="."); q.add_argument("--host", default="127.0.0.1"); q.add_argument("--port", type=int, default=8765); q.add_argument("--theme"); q.add_argument("--config", help="arquivo JSON de configuração da TUI")
+    q=sub.add_parser("web", help="abrir a TUI via Web Terminal HTTP/SSE (opt-in)"); q.add_argument("path", nargs="?", default="."); q.add_argument("--enable", action="store_true", help="habilita explicitamente o servidor web local"); q.add_argument("--host", default="127.0.0.1"); q.add_argument("--port", type=int, default=8765); q.add_argument("--theme"); q.add_argument("--config", help="arquivo JSON de configuração da TUI")
     q=sub.add_parser("config"); q.add_argument("action", choices=["show"])
     args=p.parse_args(argv)
     try:
@@ -41,7 +41,9 @@ def main(argv=None):
         elif args.command=="apply": emit({"applied":apply(Path(args.path),args.changeset_id,args.yes)},args.json)
         elif args.command=="status": emit(status(Path(args.path)),args.json)
         elif args.command=="tui": run_tui(args.path, args.theme, args.config)
-        elif args.command=="web": serve_web(args.host, args.port, args.path, args.theme, args.config)
+        elif args.command=="web":
+            if not args.enable: raise PermissionError("Web Terminal desabilitado; passe --enable para habilitar acesso local")
+            serve_web(args.host, args.port, args.path, args.theme, args.config)
         elif args.command=="config": emit({"home":str(__import__('konstructor.state',fromlist=['home']).home()),"provider":"deterministic-local","policy":"approval-required"},args.json)
         return 0
     except (OSError, ValueError, PermissionError, RuntimeError) as exc:

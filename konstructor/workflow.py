@@ -27,8 +27,9 @@ def generate(root: Path, plan_id: str) -> ChangeSet:
         safe_relative(root, rel)
         out = staging / rel; out.parent.mkdir(parents=True, exist_ok=True); out.write_text(content, encoding="utf-8")
         files.append({"path": rel, "action": "add", "reason": next((x["reason"] for x in plan["files"] if x["path"] == rel), "arquivo da proposta")})
+    hashes = {rel: file_hash(staging / rel) for rel in contents}
     cs = ChangeSet(cid, str(root), plan_id, str(staging), files, {rel: file_hash(root / rel) for rel in contents})
-    save_json(root, f"changeset-{cid}.json", {**cs.__dict__, "checks": []})
+    save_json(root, f"changeset-{cid}.json", {**cs.__dict__, "artifact_hashes": hashes, "checks": []})
     return cs
 
 def load_changeset(root: Path, cid: str) -> dict:
@@ -54,16 +55,29 @@ def validate(root: Path, cid: str) -> dict:
         p=subprocess.run([cargo,"fmt","--all","--","--check"],cwd=root,text=True,capture_output=True)
         checks.append(CheckResult("cargo-fmt", "passed" if p.returncode==0 else "failed", "cargo fmt --all -- --check", p.stdout[-1000:]+p.stderr[-1000:], p.returncode).__dict__)
     else: checks.append(CheckResult("cargo-fmt", "blocked", "cargo fmt --all -- --check", "cargo não disponível no ambiente").__dict__)
-    cs["checks"]=checks; save_json(root,f"changeset-{cid}.json",cs); return cs
+    cs["checks"]=checks
+    cs["validated_artifact_hashes"] = {item["path"]: file_hash(Path(cs["staging"]) / item["path"]) for item in cs["files"]}
+    cs["validated_base_hashes"] = {rel: file_hash(safe_relative(root, rel)) for rel in cs["base_hashes"]}
+    cs["validation_passed"] = all(c["status"] == "passed" for c in checks)
+    save_json(root,f"changeset-{cid}.json",cs); return cs
 
 def apply(root: Path, cid: str, yes: bool=False) -> list[str]:
     root=ensure_root(root); cs=load_changeset(root,cid)
     if not yes: raise PermissionError("aplicação exige aprovação explícita: use --yes após revisar diff")
+    if not cs.get("validation_passed") or not cs.get("checks"):
+        raise RuntimeError("aplicação bloqueada: validação aprovada ausente ou falhou")
+    if cs.get("validated_artifact_hashes") != cs.get("artifact_hashes"):
+        raise RuntimeError("aplicação bloqueada: artefatos staged mudaram desde a validação")
+    if cs.get("validated_base_hashes") != cs.get("base_hashes"):
+        raise RuntimeError("aplicação bloqueada: alvo mudou desde a validação")
+    if {item["path"]: file_hash(Path(cs["staging"]) / item["path"]) for item in cs["files"]} != cs["artifact_hashes"]:
+        raise RuntimeError("aplicação bloqueada: artefatos staged adulterados")
     for rel, expected in cs["base_hashes"].items():
         if file_hash(safe_relative(root,rel)) != expected: raise RuntimeError(f"conflito: arquivo mudou desde a revisão: {rel}")
     applied=[]
     for item in cs["files"]:
         target=safe_relative(root,item["path"]); source=Path(cs["staging"])/item["path"]; target.parent.mkdir(parents=True,exist_ok=True)
+        if item["action"] == "add" and target.exists(): raise RuntimeError(f"conflito: destino de add já existe: {item['path']}")
         tmp=target.with_name(target.name+".kodoo-tmp"); shutil.copyfile(source,tmp); tmp.replace(target); applied.append(item["path"])
     cs["approved"]=True; cs["applied"]=True; save_json(root,f"changeset-{cid}.json",cs); return applied
 

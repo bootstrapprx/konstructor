@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import ipaddress
 import json
 import threading
 import time
@@ -114,6 +115,9 @@ class WebTerminalServer(ThreadingHTTPServer):
 
 
 def make_server(host: str, port: int, root: str | Path, theme: str | Path | None = None, config: str | Path | None = None) -> WebTerminalServer:
+    try: loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError: loopback = host.lower() == "localhost"
+    if not loopback: raise PermissionError("Web Terminal aceita somente bind loopback; acesso remoto indisponível")
     return WebTerminalServer((host, port), WebTerminalApp(root, theme, config))
 
 

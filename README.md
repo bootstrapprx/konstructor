@@ -64,13 +64,13 @@ konstructor tui /caminho/kodoo --theme high-contrast
 
 ## Acesso via Web Terminal
 
-O comando `web` expõe a mesma camada de comandos da TUI por HTTP e SSE, sem duplicar o workflow. Por segurança, o padrão escuta apenas em `127.0.0.1`; use `--host 0.0.0.0` somente quando o acesso remoto estiver protegido pela rede, túnel SSH ou proxy autenticado:
+O comando `web` expõe a mesma camada de comandos da TUI por HTTP e SSE. O servidor fica desabilitado sem `--enable` e aceita somente bind loopback; acesso remoto não está disponível porque os endpoints de controle não têm autenticação:
 
 ```bash
-konstructor web /caminho/kodoo --host 127.0.0.1 --port 8765
+konstructor web /caminho/kodoo --enable --host 127.0.0.1 --port 8765
 ```
 
-Abra `http://127.0.0.1:8765/`. O navegador recebe atualizações de workspace, diff e logs pelo endpoint `/events`; comandos são enviados por `/action` e teclas por `/input`. A aplicação continua exigindo `approve: true` para aplicar changesets.
+Abra `http://127.0.0.1:8765/` em máquina confiável. O navegador recebe atualizações de workspace, diff e logs pelo endpoint `/events`; comandos usam `/action` e `/input`.
 
 ## Atalhos configuráveis
 
@@ -97,5 +97,5 @@ Por padrão, o estado fica em `~/.konstructor`, nunca dentro do workspace-alvo. 
 
 `cli` apenas traduz comandos; `workflow` orquestra estados; `repository` contém descoberta e o adaptador Kodoo; `planner` produz planos rastreáveis; `staging` e `safety` protegem arquivos; `validator` executa apenas checks allowlisted; `provider` define a fronteira independente de IA.
 
-O primeiro provedor é determinístico e local. A interface `LLMProvider` aceita adaptadores futuros sem importar SDK específico no núcleo.
+O gerador atual é determinístico e local; ainda não chama provedor de IA nem atende à geração generalista de produto.
 # konstructor
