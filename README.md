@@ -85,7 +85,7 @@ Para workspaces grandes, `KONSTRUCTOR_TMPDIR` escolhe onde a cópia isolada ser�
 
 ## Interface TUI
 
-`tui` abre a interface Textual com árvore navegável do workspace e abas para detalhes, diff, logs e chat. Na aba Workspace, selecione um arquivo para editar, use o campo de caminho relativo para criar um arquivo e salve ou descarte explicitamente. Arquivos `.md` abrem na prévia Markdown com índice de títulos, atualizada enquanto você edita; a subaba Editor mostra a fonte. O editor bloqueia caminhos fora do workspace e recusa salvar sobre alterações externas detectadas. Para criar um app manualmente com Neovim ou pela TUI, siga a [receita de criação de apps](docs/APP_CREATION_RECIPE.md).
+`tui` abre a interface Textual com árvore navegável do workspace e abas para detalhes, diff, logs e chat. Na aba Workspace, selecione um arquivo para editar, use o campo de caminho relativo para criar um arquivo e salve ou descarte explicitamente. Arquivos `.md` abrem na prévia Markdown com índice de títulos, atualizada enquanto você edita; a subaba Editor mostra a fonte. **Editar com Neovim** suspende a TUI, abre o arquivo no `nvim` e recarrega o conteúdo ao retornar. Salve ou descarte alterações no editor integrado antes de alternar para o Neovim. O editor bloqueia caminhos fora do workspace e recusa salvar sobre alterações externas detectadas. Para criar um app manualmente com Neovim ou pela TUI, siga a [receita de criação de apps](docs/APP_CREATION_RECIPE.md).
 
 Selecione uma ação no menu e use o campo abaixo para informar o requisito ou ID; `apply` só prossegue depois de digitar `APPLY <ID>`. O chat usa o provedor OpenAI-compatible configurado e não executa ações nem aplica alterações. `Criar plano` transforma a última solicitação do chat em um plano local revisável.
 
@@ -113,7 +113,7 @@ Temas disponíveis: `kodoo-dark`, `high-contrast` e `mono`. Também é possível
 
 ## Instalação global
 
-O script instala o launcher `konstructor` e suas dependências Python, incluindo Textual. A instalação do Textual requer acesso ao índice de pacotes Python. Como root, o padrão é `/usr/local`; como usuário comum, o padrão é `~/.local`. O prefixo pode ser escolhido explicitamente:
+O script instala o launcher `konstructor` e suas dependências Python, incluindo Textual. Neovim (`nvim`) precisa estar instalado e no `PATH`; sem ele, o instalador encerra antes de modificar arquivos. A instalação do Textual requer acesso ao índice de pacotes Python. Como root, o padrão é `/usr/local`; como usuário comum, o padrão é `~/.local`. O prefixo pode ser escolhido explicitamente:
 
 ```bash
 ./install.sh --prefix "$HOME/.local"

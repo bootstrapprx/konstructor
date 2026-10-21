@@ -39,6 +39,11 @@ while (($#)); do
   esac
 done
 
+if (( ! UNINSTALL && ! DRY_RUN )) && ! command -v nvim >/dev/null 2>&1; then
+  echo "Neovim (nvim) não encontrado no PATH; instale-o antes de instalar o Konstructor." >&2
+  exit 1
+fi
+
 PREFIX="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$PREFIX")"
 BIN_DIR="${BIN_DIR:-$PREFIX/bin}"
 BIN_DIR="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$BIN_DIR")"

@@ -4,7 +4,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import stat
+import subprocess
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -100,13 +102,18 @@ class KonstructorTUI(App[None]):
                                         yield Static("Workspace ainda não inspecionado. Selecione Inspecionar workspace para carregar o inventário.", id="workspace-summary")
                                         yield Static("Selecione um arquivo na árvore ou crie um caminho novo.", id="editor-path")
                                         yield TextArea("", id="file-editor")
-                                        with Horizontal(id="editor-controls"):
-                                            yield Input(placeholder="Novo caminho relativo, ex.: apps/ledger/src/lib.rs", id="new-file-path")
-                                            yield Button("Novo arquivo", id="new-file")
-                                            yield Button("Descartar", id="discard-file")
-                                            yield Button("Salvar no workspace", id="save-file", variant="primary")
+                                        with Vertical(id="editor-controls"):
+                                            with Horizontal():
+                                                yield Input(placeholder="Novo caminho relativo, ex.: apps/ledger/src/lib.rs", id="new-file-path")
+                                                yield Button("Novo arquivo", id="new-file")
+                                            with Horizontal():
+                                                yield Button("Editar com Neovim", id="open-neovim")
+                                                yield Button("Descartar", id="discard-file")
+                                                yield Button("Salvar no workspace", id="save-file", variant="primary")
                             with TabPane("Markdown", id="markdown"):
-                                yield MarkdownViewer("Selecione um arquivo **.md** na árvore do Workspace para visualizar a documentação formatada.", id="markdown-preview", show_table_of_contents=True)
+                                with Vertical():
+                                    yield Button("Editar arquivo no Neovim", id="open-neovim-markdown")
+                                    yield MarkdownViewer("Selecione um arquivo **.md** na árvore do Workspace para visualizar a documentação formatada.", id="markdown-preview", show_table_of_contents=True)
                     with TabPane("Diff / detalhe", id="diff"):
                         yield RichLog(id="diff-log", wrap=False, markup=False)
                     with TabPane("Logs", id="logs"):
@@ -164,6 +171,8 @@ class KonstructorTUI(App[None]):
             self._create_plan()
         elif event.button.id == "new-file":
             self._new_file()
+        elif event.button.id in {"open-neovim", "open-neovim-markdown"}:
+            self._open_in_neovim()
         elif event.button.id == "save-file":
             self._save_file()
         elif event.button.id == "discard-file":
@@ -205,6 +214,40 @@ class KonstructorTUI(App[None]):
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         if event.text_area.id == "file-editor" and self._editor_path and self._editor_path.lower().endswith(".md"):
             self.query_one("#markdown-preview", MarkdownViewer).document.update(event.text_area.text)
+
+    def _open_in_neovim(self) -> None:
+        if not self._editor_path:
+            self.notify("Selecione ou crie um arquivo antes de abrir o Neovim.", severity="warning")
+            return
+        editor = shutil.which("nvim")
+        if not editor:
+            self.notify("Neovim não encontrado no PATH.", severity="error")
+            return
+        if self.query_one("#file-editor", TextArea).text != self._editor_original:
+            self.notify("Salve ou descarte as alterações da TUI antes de abrir o Neovim.", severity="warning")
+            return
+        try:
+            target = safe_relative(self.controller.root, self._editor_path)
+            if target.exists() and not target.is_file():
+                raise SafetyError("o caminho selecionado não é um arquivo")
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target = safe_relative(self.controller.root, self._editor_path)
+            with self.suspend():
+                result = subprocess.run([editor, str(target)], check=False)
+            if result.returncode:
+                raise RuntimeError(f"Neovim encerrou com código {result.returncode}")
+            target = safe_relative(self.controller.root, self._editor_path)
+            if target.is_file():
+                content = target.read_text(encoding="utf-8")
+                self._editor_hash = file_hash(target)
+                self._editor_original = content
+                self.query_one("#file-editor", TextArea).text = content
+                if target.suffix.lower() == ".md":
+                    self.query_one("#markdown-preview", MarkdownViewer).document.update(content)
+                self.query_one("#workspace-tree", DirectoryTree).reload()
+                self.controller.log(f"Arquivo editado com Neovim: {self._editor_path}")
+        except (OSError, UnicodeError, SafetyError, RuntimeError, ValueError) as exc:
+            self.notify(f"Não foi possível abrir no Neovim: {exc}", severity="error")
 
     def _new_file(self) -> None:
         if self._editor_path and self.query_one("#file-editor", TextArea).text != self._editor_original:

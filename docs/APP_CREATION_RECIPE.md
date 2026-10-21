@@ -43,7 +43,7 @@ Crie os demais caminhos seguindo o app de referência. Use o `Cargo.toml` da rai
 konstructor tui /mnt/toshiba/git/kodoo
 ```
 
-Na aba Workspace, selecione arquivos para abrir e editar. Para criar um arquivo, informe um caminho relativo ao workspace, por exemplo `apps/<slug>/src/main.rs`, e escolha **Novo arquivo**. **Salvar no workspace** grava o arquivo diretamente; **Descartar** recarrega a versão salva. Se o arquivo mudou fora da TUI desde a abertura, o salvamento é recusado: reabra e reconcilie as versões. Para arquivos acima de 2 MB ou edição avançada, use Neovim.
+Na aba Workspace, selecione arquivos para abrir e editar. Arquivos Markdown abrem na prévia formatada; volte à subaba Editor para ver a fonte. Para criar um arquivo, informe um caminho relativo ao workspace, por exemplo `apps/<slug>/src/main.rs`, e escolha **Novo arquivo**. **Salvar no workspace** grava o arquivo diretamente; **Descartar** recarrega a versão salva. Se o arquivo mudou fora da TUI desde a abertura, o salvamento é recusado: reabra e reconcilie as versões. **Editar com Neovim** suspende a TUI e abre o caminho atual no `nvim`; salve ou descarte antes qualquer edição pendente na TUI. Ao retornar, a árvore e a prévia Markdown são atualizadas.
 
 ## 4. Valide no próprio checkout
 
