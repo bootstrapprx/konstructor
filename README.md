@@ -111,11 +111,17 @@ O script instala a TUI e o launcher `konstructor` sem dependências externas. Co
 
 ```bash
 ./install.sh --prefix "$HOME/.local"
+./install.sh --workspace /mnt/toshiba/git/kodoo
 ./install.sh --dry-run --prefix /usr/local
+./install.sh --add-to-path
 ./install.sh --uninstall --prefix "$HOME/.local"
 ```
 
-Depois da instalação:
+O instalador não altera arquivos do shell por padrão. `--add-to-path` adiciona o diretório `bin` do prefixo ao `~/.bashrc` ou `~/.zshrc`, conforme `$SHELL`, sem duplicar a entrada. Reabra o terminal ou carregue o arquivo indicado pelo instalador. Sem essa opção, use o caminho completo mostrado na saída ou adicione o diretório `bin` ao `PATH` manualmente.
+
+O workspace Kodoo é detectado a partir do diretório atual ou do checkout `../kodoo`; em terminal interativo, você pode aceitar o caminho encontrado ou informar outro. `--workspace DIR` configura isso sem prompt; pode apontar para a raiz do Kodoo ou para um caminho dentro de um app, que será associado à raiz do workspace. O launcher instalado usa esse destino como padrão para `tui`, `status`, inspeção, wizard de módulo/app e roadmap. Um `KONSTRUCTOR_WORKSPACE` definido no ambiente tem precedência.
+
+Depois da instalação, se `bin` já estiver no `PATH`:
 
 ```bash
 konstructor tui /caminho/kodoo --theme high-contrast

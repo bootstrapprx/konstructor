@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, json, sys
+import argparse, json, os, sys
 from pathlib import Path
 from .repository import KodooRepositoryAdapter
 from .planner import make_plan, write_plan
@@ -9,6 +9,9 @@ from .provider import OpenAICompatibleProvider
 from .tui import run_tui
 from .web_terminal import serve_web
 from . import roadmap as roadmap_store
+
+WORKSPACE_DEFAULT=os.environ.get("KONSTRUCTOR_WORKSPACE", ".")
+KODOO_DEFAULT=os.environ.get("KONSTRUCTOR_WORKSPACE", "/mnt/toshiba/git/kodoo")
 
 def emit(value, machine=False):
     if machine: print(json.dumps(value, ensure_ascii=False, indent=2, sort_keys=True))
@@ -20,30 +23,30 @@ def main(argv=None):
     p.add_argument("--json", action="store_true", help="saída estruturada")
     sub=p.add_subparsers(dest="command", required=True)
     for name in ("inspect","index"): 
-        q=sub.add_parser(name); q.add_argument("path", nargs="?", default=".")
+        q=sub.add_parser(name); q.add_argument("path", nargs="?", default=WORKSPACE_DEFAULT)
     q=sub.add_parser("plan"); q.add_argument("path"); q.add_argument("request"); q.add_argument("--output")
     app=sub.add_parser("app", help="assistente para criação manual de módulo Kodoo"); appsub=app.add_subparsers(dest="app_command", required=True)
-    wizard=appsub.add_parser("wizard", help="coletar decisões e salvar proposta de criação"); wizard.add_argument("path", nargs="?", default="/mnt/toshiba/git/kodoo"); wizard.add_argument("--name", help="nome ou slug do módulo"); wizard.add_argument("--summary", help="objetivo do módulo"); wizard.add_argument("--direct", choices=("yes", "no"), help="se terá superfície de produto Dioxus Direct"); wizard.add_argument("--llm", action="store_true"); wizard.add_argument("--apply", action="store_true")
-    appsub.add_parser("new-app", help="criar proposta de scaffold para app Dioxus").add_argument("path", nargs="?", default="/mnt/toshiba/git/kodoo")
+    wizard=appsub.add_parser("wizard", help="coletar decisões e salvar proposta de criação"); wizard.add_argument("path", nargs="?", default=KODOO_DEFAULT); wizard.add_argument("--name", help="nome ou slug do módulo"); wizard.add_argument("--summary", help="objetivo do módulo"); wizard.add_argument("--direct", choices=("yes", "no"), help="se terá superfície de produto Dioxus Direct"); wizard.add_argument("--llm", action="store_true"); wizard.add_argument("--apply", action="store_true")
+    appsub.add_parser("new-app", help="criar proposta de scaffold para app Dioxus").add_argument("path", nargs="?", default=KODOO_DEFAULT)
     appsub.choices["new-app"].add_argument("--name"); appsub.choices["new-app"].add_argument("--summary")
     for action in ("review", "diff", "validate", "apply"):
         item=appsub.add_parser(action, help=f"{action} app proposal"); item.add_argument("path"); item.add_argument("proposal_id")
     provider=sub.add_parser("provider", help="LLM provider status and structured generation"); provider.add_argument("action", choices=("status", "complete")); provider.add_argument("--prompt"); provider.add_argument("--schema", help="JSON schema inline"); provider.add_argument("--model"); provider.add_argument("--base-url")
     edit=sub.add_parser("edit", help="propor edição de arquivos existentes com LLM"); edit.add_argument("path"); edit.add_argument("request"); edit.add_argument("files", nargs="*"); edit.add_argument("--file", dest="selected_files", action="append", default=[]); edit.add_argument("--model"); edit.add_argument("--base-url")
     roadmap=sub.add_parser("roadmap", help="roadmap dinâmico importado da planilha"); rsub=roadmap.add_subparsers(dest="roadmap_command", required=True)
-    imp=rsub.add_parser("import", help="importar planilha XLSX"); imp.add_argument("path", nargs="?", default="/mnt/toshiba/git/kodoo"); imp.add_argument("workbook", nargs="?", default=str(Path(__file__).resolve().parent.parent / "context/kodoo-roadmap.xlsx"))
-    dash=rsub.add_parser("dashboard"); dash.add_argument("path", nargs="?", default="/mnt/toshiba/git/kodoo")
-    listing=rsub.add_parser("list"); listing.add_argument("path", nargs="?", default="/mnt/toshiba/git/kodoo"); listing.add_argument("--sheet"); listing.add_argument("--status"); listing.add_argument("--priority")
+    imp=rsub.add_parser("import", help="importar planilha XLSX"); imp.add_argument("path", nargs="?", default=KODOO_DEFAULT); imp.add_argument("workbook", nargs="?", default=str(Path(__file__).resolve().parent.parent / "context/kodoo-roadmap.xlsx"))
+    dash=rsub.add_parser("dashboard"); dash.add_argument("path", nargs="?", default=KODOO_DEFAULT)
+    listing=rsub.add_parser("list"); listing.add_argument("path", nargs="?", default=KODOO_DEFAULT); listing.add_argument("--sheet"); listing.add_argument("--status"); listing.add_argument("--priority")
     show=rsub.add_parser("show"); show.add_argument("path"); show.add_argument("id")
     update=rsub.add_parser("update"); update.add_argument("path"); update.add_argument("id"); update.add_argument("--status"); update.add_argument("--evidence"); update.add_argument("--note")
-    exp=rsub.add_parser("export"); exp.add_argument("path",nargs="?",default="/mnt/toshiba/git/kodoo"); exp.add_argument("destination")
+    exp=rsub.add_parser("export"); exp.add_argument("path",nargs="?",default=KODOO_DEFAULT); exp.add_argument("destination")
     q=sub.add_parser("generate"); q.add_argument("path"); q.add_argument("plan_id")
     for name in ("validate","diff","apply"): 
         q=sub.add_parser(name); q.add_argument("path"); q.add_argument("changeset_id")
     sub.choices["apply"].add_argument("--yes", action="store_true")
-    q=sub.add_parser("status"); q.add_argument("path", nargs="?", default=".")
-    q=sub.add_parser("tui", help="abrir interface interativa de terminal"); q.add_argument("path", nargs="?", default="."); q.add_argument("--theme", help="preset (kodoo-dark, high-contrast, mono) ou caminho JSON"); q.add_argument("--config", help="arquivo JSON de configuração da TUI")
-    q=sub.add_parser("web", help="abrir a TUI via Web Terminal HTTP/SSE (opt-in)"); q.add_argument("path", nargs="?", default="."); q.add_argument("--enable", action="store_true", help="habilita explicitamente o servidor web local"); q.add_argument("--host", default="127.0.0.1"); q.add_argument("--port", type=int, default=8765); q.add_argument("--theme"); q.add_argument("--config", help="arquivo JSON de configuração da TUI")
+    q=sub.add_parser("status"); q.add_argument("path", nargs="?", default=WORKSPACE_DEFAULT)
+    q=sub.add_parser("tui", help="abrir interface interativa de terminal"); q.add_argument("path", nargs="?", default=WORKSPACE_DEFAULT); q.add_argument("--theme", help="preset (kodoo-dark, high-contrast, mono) ou caminho JSON"); q.add_argument("--config", help="arquivo JSON de configuração da TUI")
+    q=sub.add_parser("web", help="abrir a TUI via Web Terminal HTTP/SSE (opt-in)"); q.add_argument("path", nargs="?", default=WORKSPACE_DEFAULT); q.add_argument("--enable", action="store_true", help="habilita explicitamente o servidor web local"); q.add_argument("--host", default="127.0.0.1"); q.add_argument("--port", type=int, default=8765); q.add_argument("--theme"); q.add_argument("--config", help="arquivo JSON de configuração da TUI")
     q=sub.add_parser("config"); q.add_argument("action", choices=["show"])
     q=sub.add_parser("mcp", help="servidor MCP stdio para Codex"); q.add_argument("--workspace", default=None, help=argparse.SUPPRESS)
     q=sub.add_parser("approve", help="aprova changeset para uso pelo MCP"); q.add_argument("path"); q.add_argument("changeset_id")
