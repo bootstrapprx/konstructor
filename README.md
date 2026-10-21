@@ -79,6 +79,8 @@ konstructor apply /mnt/toshiba/git/kodoo CHANGESET_ID --yes
 
 O modelo só pode devolver conteúdo para os arquivos selecionados; alterações fora dessa lista são rejeitadas. A validação é feita numa cópia temporária. Se algum check estiver `failed` ou `blocked`, apply fica bloqueado.
 
+Para workspaces grandes, `KONSTRUCTOR_TMPDIR` escolhe onde a cópia isolada será criada e `KONSTRUCTOR_VALIDATE_TIMEOUT` ajusta o timeout de `cargo fmt` em segundos (padrão: 300). Diretórios locais `.native`, `target` e `.git` são omitidos da cópia.
+
 ## Interface TUI
 
 `tui` abre uma interface interativa baseada em `curses`. Use as setas para escolher `Inspect`, `Index`, `Plan`, `Generate`, `Validate`, `Diff`, `Apply` ou `Status`, e pressione Enter para executar. O diff é somente leitura e a aplicação exige digitar `sim` na confirmação da própria tela. `q` sai sem alterar o workspace.

@@ -116,19 +116,20 @@ def validate(root: Path, cid: str) -> dict:
     is_cargo_workspace = (root / "Cargo.toml").is_file() and "[workspace]" in (root / "Cargo.toml").read_text(encoding="utf-8", errors="replace")
     if cargo and is_cargo_workspace:
         try:
-            with tempfile.TemporaryDirectory(prefix="konstructor-validate-") as tmp:
+            with tempfile.TemporaryDirectory(prefix="konstructor-validate-", dir=os.environ.get("KONSTRUCTOR_TMPDIR")) as tmp:
                 isolated = Path(tmp) / "workspace"
-                shutil.copytree(root, isolated, ignore=shutil.ignore_patterns(".git", "target", "node_modules", ".venv", "__pycache__"))
+                shutil.copytree(root, isolated, ignore=shutil.ignore_patterns(".git", "target", ".native", "node_modules", ".venv", "__pycache__"))
                 for item in cs["files"]:
                     rel = item["path"]
                     staged = Path(cs["staging"]) / rel
                     target = safe_relative(isolated, rel)
                     target.parent.mkdir(parents=True, exist_ok=True)
                     shutil.copyfile(staged, target)
-                p=subprocess.run([cargo,"fmt","--all","--","--check"],cwd=isolated,text=True,capture_output=True,timeout=60,env={**os.environ,"CARGO_TARGET_DIR":str(Path(tmp)/"target"),"CARGO_NET_OFFLINE":"true"})
+                timeout = float(os.environ.get("KONSTRUCTOR_VALIDATE_TIMEOUT", "300"))
+                p=subprocess.run([cargo,"fmt","--all","--","--check"],cwd=isolated,text=True,capture_output=True,timeout=timeout,env={**os.environ,"CARGO_TARGET_DIR":str(Path(tmp)/"target"),"CARGO_NET_OFFLINE":"true"})
                 checks.append(CheckResult("cargo-fmt", "passed" if p.returncode==0 else "failed", "cargo fmt --all -- --check (isolated)", p.stdout[-1000:]+p.stderr[-1000:], p.returncode).__dict__)
         except subprocess.TimeoutExpired as exc:
-            checks.append(CheckResult("cargo-fmt", "blocked", "cargo fmt --all -- --check (isolated)", f"timeout after 60s: {(exc.stderr or b'').decode(errors='replace')[-500:]}").__dict__)
+            checks.append(CheckResult("cargo-fmt", "blocked", "cargo fmt --all -- --check (isolated)", f"timeout: {(exc.stderr or b'').decode(errors='replace')[-500:]}").__dict__)
         except OSError as exc:
             checks.append(CheckResult("cargo-fmt", "blocked", "cargo fmt --all -- --check (isolated)", str(exc)).__dict__)
     else: checks.append(CheckResult("cargo-fmt", "blocked", "cargo fmt --all -- --check", "workspace Cargo ou cargo indisponível").__dict__)

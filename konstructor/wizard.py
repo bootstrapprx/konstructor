@@ -4,9 +4,9 @@ import re
 import difflib
 import hashlib
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from .safety import ensure_root
+from .safety import SafetyError, ensure_root, safe_relative
 from .state import save_json, load_json, workspace_dir
 from .safety import file_hash
 
@@ -85,7 +85,6 @@ def create_app_proposal(root: str | Path, name: str | None, summary: str | None,
     proposal["artifacts"] = _app_artifacts(name, summary)
     proposal["diff"] = _proposal_diff(root, proposal)
     proposal_path = save_json(root, f"app-proposal-{name}.json", proposal)
-    save_json(root, f"{proposal_path.stem}.json", proposal)
     return proposal
 
 
@@ -112,7 +111,18 @@ def validate_proposal(proposal: dict) -> dict:
     else:
         members = _workspace_members(manifest.read_text(encoding="utf-8"))
         result["workspace_member_absent"] = proposal["path"] not in members
-        result["artifacts_safe"] = all(not Path(rel).is_absolute() and ".." not in Path(rel).parts for rel in proposal["artifacts"])
+        app_parts = PurePosixPath(proposal["path"]).parts
+        def safe_artifact(rel):
+            if not isinstance(rel, str) or "\\" in rel: return False
+            parts = PurePosixPath(rel).parts
+            if PurePosixPath(rel).is_absolute() or ".." in parts or parts[:len(app_parts)] != app_parts or len(parts) <= len(app_parts): return False
+            try:
+                safe_relative(root, rel).relative_to(safe_relative(root, proposal["path"]))
+                return True
+            except (SafetyError, ValueError):
+                return False
+        artifacts = proposal.get("artifacts")
+        result["artifacts_safe"] = isinstance(artifacts, dict) and all(safe_artifact(rel) for rel in artifacts)
         result["diff_current"] = proposal.get("diff") == _proposal_diff(root, proposal)
     result["passed"] = all(result.values())
     return result
@@ -132,6 +142,7 @@ def _app_artifacts(name: str, summary: str) -> dict[str, str]:
         f"apps/{name}/src/main.rs": f'''fn main() {{\n    dioxus::launch({name.replace('-', '_')}::App);\n}}\n''',
         f"apps/{name}/src/lib.rs": f'''use dioxus::prelude::*;\n\nconst SUMMARY: &str = {escaped};\nstatic MAIN_CSS: Asset = asset!("/assets/main.css");\n\n#[component]\npub fn App() -> Element {{\n    rsx! {{\n        document::Meta {{ name: "viewport", content: "width=device-width, initial-scale=1" }}\n        document::Stylesheet {{ href: MAIN_CSS }}\n        main {{ class: "app-shell",\n            p {{ class: "eyebrow", "KODOO APP" }}\n            h1 {{ "{title}" }}\n            p {{ "{{SUMMARY}}" }}\n        }}\n    }}\n}}\n''',
         f"apps/{name}/assets/main.css": ":root { font-family: system-ui, sans-serif; color: #172033; background: #f5f7fb; }\nbody { margin: 0; }\n.app-shell { max-width: 72rem; margin: 4rem auto; padding: 2rem; }\n.eyebrow { color: #475569; font-size: .75rem; letter-spacing: .12em; }\n",
+        f"apps/{name}/README.md": f'''# {title}\n\nApp Dioxus inicial. Para executar: `cd apps/{name} && dx serve --platform desktop`.\n\n## Integrações de produto pendentes\n\n- Montar os componentes Direct dos módulos escolhidos para este domínio.\n- Definir rotas e navegação do produto.\n- Exercitar o fluxo desktop contra backend e dados reais.\n''',
         f"apps/{name}/tests/render.rs": f'''use dioxus::prelude::*;\nuse {name.replace('-', '_')}::App;\n\n#[test]\nfn renders_app_name_and_summary() {{\n    let mut dom = VirtualDom::new(App);\n    dom.rebuild_in_place();\n    let html = dioxus_ssr::render(&dom);\n    assert!(html.contains("{title}"));\n    assert!(html.contains({escaped}.trim_matches('"')));\n}}\n''',
     }
 
@@ -146,7 +157,7 @@ def _proposal_diff(root: Path, proposal: dict) -> str:
     if proposal["path"] not in members:
         updated = _add_workspace_member(updated, proposal["path"])
     pieces = list(difflib.unified_diff(text.splitlines(True), updated.splitlines(True), fromfile="a/Cargo.toml", tofile="b/Cargo.toml"))
-    for rel, content in proposal["artifacts"].items():
+    for rel, content in sorted(proposal["artifacts"].items()):
         pieces.extend(difflib.unified_diff([], content.splitlines(True), fromfile="/dev/null", tofile=f"b/{rel}"))
     return "".join(pieces)
 
@@ -163,7 +174,7 @@ def apply_app_proposal(proposal: dict, approved: bool) -> list[str]:
     manifest_written = False
     try:
         for rel, content in proposal["artifacts"].items():
-            path = root / rel
+            path = safe_relative(root, rel)
             if path.exists(): raise FileExistsError(path)
             path.parent.mkdir(parents=True, exist_ok=True)
             temp = path.with_suffix(path.suffix + ".konstructor-tmp")

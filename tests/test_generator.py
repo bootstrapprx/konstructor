@@ -170,6 +170,62 @@ class GeneratorTests(unittest.TestCase):
         self.assertTrue((self.repo / "apps/reporting/src/lib.rs").is_file())
         self.assertIn('"apps/reporting"', (self.repo / "Cargo.toml").read_text())
 
+    def test_saved_app_proposal_remains_valid_after_reload(self):
+        (self.repo / "apps").mkdir(exist_ok=True)
+        (self.repo / "Cargo.toml").write_text('[workspace]\nmembers = []\n', encoding="utf-8")
+        proposal = create_app_proposal(self.repo, "reporting", "Relatórios")
+        loaded = load_proposal(self.repo, proposal["proposal_id"])
+        self.assertTrue(validate_proposal(loaded)["passed"])
+
+    def test_app_proposal_rejects_artifacts_outside_its_app(self):
+        (self.repo / "apps").mkdir(exist_ok=True)
+        (self.repo / "Cargo.toml").write_text('[workspace]\nmembers = []\n', encoding="utf-8")
+        proposal = create_app_proposal(self.repo, "reporting", "Relatórios")
+        proposal["artifacts"]["backend/Cargo.toml"] = "[package]"
+        checks = validate_proposal(proposal)
+        self.assertFalse(checks["artifacts_safe"])
+        self.assertFalse(checks["passed"])
+
+    def test_app_proposal_rejects_symlink_escape(self):
+        (self.repo / "apps").symlink_to(self.repo.parent, target_is_directory=True)
+        (self.repo / "Cargo.toml").write_text('[workspace]\nmembers = []\n', encoding="utf-8")
+        proposal = create_app_proposal(self.repo, "reporting", "Relatórios")
+        checks = validate_proposal(proposal)
+        self.assertFalse(checks["artifacts_safe"])
+        self.assertFalse(checks["passed"])
+
+    def test_generated_app_documents_unwired_product_surfaces(self):
+        (self.repo / "apps").mkdir(exist_ok=True)
+        (self.repo / "Cargo.toml").write_text('[workspace]\nmembers = []\n', encoding="utf-8")
+        proposal = create_app_proposal(self.repo, "reporting", "Relatórios")
+        readme = proposal["artifacts"]["apps/reporting/README.md"]
+        self.assertIn("dx serve", readme)
+        self.assertIn("Direct", readme)
+        self.assertIn("navegação", readme)
+
+    def test_validation_uses_configured_temp_directory(self):
+        import konstructor.workflow as workflow
+        from unittest.mock import patch
+        temp_parent = self.repo / "validation-tmp"
+        temp_parent.mkdir()
+        plan = make_plan(self.repo, "temporary validation", KodooRepositoryAdapter(self.repo).index())
+        write_plan(self.repo, plan)
+        cs = generate(self.repo, plan.id)
+        calls = []
+        real_tempdir = workflow.tempfile.TemporaryDirectory
+        def record_tempdir(*args, **kwargs):
+            calls.append(kwargs.get("dir"))
+            return real_tempdir(*args, **kwargs)
+        previous = os.environ.get("KONSTRUCTOR_TMPDIR")
+        os.environ["KONSTRUCTOR_TMPDIR"] = str(temp_parent)
+        try:
+            with patch.object(workflow.tempfile, "TemporaryDirectory", side_effect=record_tempdir):
+                workflow.validate(self.repo, cs.id)
+        finally:
+            if previous is None: os.environ.pop("KONSTRUCTOR_TMPDIR", None)
+            else: os.environ["KONSTRUCTOR_TMPDIR"] = previous
+        self.assertEqual(calls, [str(temp_parent)])
+
     def test_provider_structured_schema_validation(self):
         schema = {"type": "object", "properties": {"title": {"type": "string"}}, "required": ["title"], "additionalProperties": False}
         _validate_schema({"title": "ok"}, schema)
