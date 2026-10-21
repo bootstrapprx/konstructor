@@ -31,6 +31,27 @@ python -m konstructor web /caminho/kodoo --host 0.0.0.0 --port 8765
 
 Configure `KONSTRUCTOR_LLM_BASE_URL`, `KONSTRUCTOR_LLM_MODEL` e, quando exigido, `KONSTRUCTOR_LLM_API_KEY` no ambiente. O padrão do endpoint é `https://api.openai.com/v1`; tokens nunca são gravados na configuração. `konstructor provider status` verifica a configuração e `konstructor app wizard --llm` usa saída JSON estruturada para enriquecer o resumo. O modo local continua disponível sem credenciais.
 
+## Servidor MCP para Codex
+
+O servidor MCP usa stdio; o Codex fornece o raciocínio e o conteúdo. O Konstructor não envia chamadas a provedor LLM nesse fluxo. Configure o processo MCP com `KONSTRUCTOR_WORKSPACE` apontando para o repositório Kodoo e, opcionalmente, `KONSTRUCTOR_HOME` para o estado local:
+
+```json
+{
+  "mcpServers": {
+    "konstructor": {
+      "command": "konstructor",
+      "args": ["mcp"],
+      "env": {
+        "KONSTRUCTOR_WORKSPACE": "/mnt/toshiba/git/kodoo",
+        "KONSTRUCTOR_HOME": "/home/green/.konstructor"
+      }
+    }
+  }
+}
+```
+
+As ferramentas cobrem inspeção/indexação, planos, propostas de app/módulo, staging de arquivos, diff, validação e operações do roadmap. Para aplicar um changeset: revise o diff, valide, rode `konstructor approve /mnt/toshiba/git/kodoo CHANGESET_ID` num terminal e confirme digitando `APPLY CHANGESET_ID`; passe o token de uso único emitido ao MCP. Token expira em cinco minutos e fica vinculado ao changeset e aos hashes dos arquivos. O servidor não oferece shell nem acesso a outro workspace.
+
 ## Roadmap dinâmico
 
 Importe a planilha herdada uma vez. O Konstructor guarda snapshot, hash, abas e linhas em SQLite sob `~/.konstructor/workspaces/`; alterações de estado/evidência ficam como histórico separado, e os status herdados continuam preservados como referência não verificada. Depois da importação, use a base do Konstructor em vez de editar a planilha:

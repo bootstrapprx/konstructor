@@ -45,6 +45,8 @@ def main(argv=None):
     q=sub.add_parser("tui", help="abrir interface interativa de terminal"); q.add_argument("path", nargs="?", default="."); q.add_argument("--theme", help="preset (kodoo-dark, high-contrast, mono) ou caminho JSON"); q.add_argument("--config", help="arquivo JSON de configuração da TUI")
     q=sub.add_parser("web", help="abrir a TUI via Web Terminal HTTP/SSE (opt-in)"); q.add_argument("path", nargs="?", default="."); q.add_argument("--enable", action="store_true", help="habilita explicitamente o servidor web local"); q.add_argument("--host", default="127.0.0.1"); q.add_argument("--port", type=int, default=8765); q.add_argument("--theme"); q.add_argument("--config", help="arquivo JSON de configuração da TUI")
     q=sub.add_parser("config"); q.add_argument("action", choices=["show"])
+    q=sub.add_parser("mcp", help="servidor MCP stdio para Codex"); q.add_argument("--workspace", default=None, help=argparse.SUPPRESS)
+    q=sub.add_parser("approve", help="aprova changeset para uso pelo MCP"); q.add_argument("path"); q.add_argument("changeset_id")
     for parser in sub.choices.values():
         parser.add_argument("--json", action="store_true", dest="json_sub", help=argparse.SUPPRESS)
     for parser in rsub.choices.values():
@@ -129,6 +131,18 @@ def main(argv=None):
             if not args.enable: raise PermissionError("Web Terminal desabilitado; passe --enable para habilitar acesso local")
             serve_web(args.host, args.port, args.path, args.theme, args.config)
         elif args.command=="config": emit({"home":str(__import__('konstructor.state',fromlist=['home']).home()),"provider":"openai-compatible" if __import__('os').environ.get("KONSTRUCTOR_LLM_MODEL") else "deterministic-local","policy":"approval-required","llm_base_url":__import__('os').environ.get("KONSTRUCTOR_LLM_BASE_URL", "https://api.openai.com/v1"),"llm_model_configured":bool(__import__('os').environ.get("KONSTRUCTOR_LLM_MODEL")),"llm_api_key_configured":bool(__import__('os').environ.get("KONSTRUCTOR_LLM_API_KEY"))},args.json)
+        elif args.command=="mcp":
+            from .mcp_server import serve
+            import os
+            workspace=args.workspace or os.environ.get("KONSTRUCTOR_WORKSPACE")
+            if not workspace: raise ValueError("defina KONSTRUCTOR_WORKSPACE para fixar o workspace do servidor")
+            serve(workspace)
+        elif args.command=="approve":
+            if not sys.stdin.isatty(): raise PermissionError("aprovação MCP exige terminal interativo")
+            from .approvals import approve_changeset
+            print(diff(args.path,args.changeset_id))
+            token=approve_changeset(Path(args.path),args.changeset_id,input(f"Digite APPLY {args.changeset_id}: "))
+            print(f"Token de uso único (válido por 5 minutos): {token}")
         return 0
     except (OSError, ValueError, PermissionError, RuntimeError) as exc:
         print(f"konstructor: erro: {exc}",file=sys.stderr); return 2

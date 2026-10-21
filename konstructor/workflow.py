@@ -68,6 +68,32 @@ def stage_edits(root: Path, request: str, files: list[str], provider) -> ChangeS
     save_json(root, f"changeset-{cid}.json", cs)
     return ChangeSet(**{k:v for k,v in cs.items() if k in ChangeSet.__dataclass_fields__})
 
+def stage_artifacts(root: Path, request: str, artifacts: list[dict]) -> ChangeSet:
+    """Stage caller-authored file contents without invoking an LLM or touching the target."""
+    root = ensure_root(root)
+    if not artifacts: raise ValueError("changeset vazio")
+    cid = hashlib.sha256(f"mcp:{root}:{request}:{json.dumps(artifacts,sort_keys=True)}".encode()).hexdigest()[:12]
+    staging = workspace_dir(root) / "staging" / cid
+    if staging.exists(): shutil.rmtree(staging)
+    staging.mkdir(parents=True)
+    files, base, hashes, seen = [], {}, {}, set()
+    for item in artifacts:
+        rel, action, content = item["path"], item["action"], item["content"]
+        target = safe_relative(root, rel)
+        if rel in seen: raise ValueError(f"path duplicado: {rel}")
+        seen.add(rel)
+        if action not in {"add", "modify"}: raise ValueError(f"ação inválida: {action}")
+        if action == "add" and target.exists(): raise ValueError(f"destino de add já existe: {rel}")
+        if action == "modify" and not target.is_file(): raise ValueError(f"arquivo para edição não existe: {rel}")
+        out = staging / rel
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(content, encoding="utf-8")
+        files.append({"path": rel, "action": action, "reason": request})
+        base[rel] = file_hash(target)
+        hashes[rel] = file_hash(out)
+    save_json(root, f"changeset-{cid}.json", {"id":cid,"workspace":str(root),"plan_id":cid,"staging":str(staging),"files":files,"base_hashes":base,"artifact_hashes":hashes,"checks":[]})
+    return ChangeSet(cid, str(root), cid, str(staging), files, base)
+
 def load_changeset(root: Path, cid: str) -> dict:
     return load_json(ensure_root(root), f"changeset-{cid}.json")
 
