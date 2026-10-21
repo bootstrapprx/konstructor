@@ -109,6 +109,7 @@ fi
 
 [[ -d "$SOURCE_DIR/konstructor" ]] || { echo "diretório konstructor ausente em $SOURCE_DIR" >&2; exit 1; }
 run mkdir -p "$DATA_DIR" "$BIN_DIR"
+run python3 -m pip install --upgrade --target "$DATA_DIR/vendor" 'textual>=1,<9'
 run rm -rf "$DATA_DIR/konstructor"
 run cp -R "$SOURCE_DIR/konstructor" "$DATA_DIR/konstructor"
 run cp "$SOURCE_DIR/README.md" "$DATA_DIR/README.md"
@@ -122,7 +123,7 @@ if (( ! DRY_RUN )); then
   cat > "$LAUNCHER" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-export PYTHONPATH="${DATA_DIR}\${PYTHONPATH:+:\$PYTHONPATH}"
+export PYTHONPATH="${DATA_DIR}/vendor:${DATA_DIR}\${PYTHONPATH:+:\$PYTHONPATH}"
 if [[ -z "\${KONSTRUCTOR_WORKSPACE:-}" && -f "${DATA_DIR}/workspace" ]]; then
   export KONSTRUCTOR_WORKSPACE="\$(<"${DATA_DIR}/workspace")"
 fi

@@ -83,9 +83,11 @@ Para workspaces grandes, `KONSTRUCTOR_TMPDIR` escolhe onde a cópia isolada ser�
 
 ## Interface TUI
 
-`tui` abre uma interface interativa baseada em `curses`. Use as setas para escolher `Inspect`, `Index`, `Plan`, `Generate`, `Validate`, `Diff`, `Apply` ou `Status`, e pressione Enter para executar. O diff é somente leitura e a aplicação exige digitar `sim` na confirmação da própria tela. `q` sai sem alterar o workspace.
+`tui` abre a interface Textual com árvore navegável do workspace e abas para detalhes, diff, logs e chat. Selecione uma ação no menu e use o campo abaixo para informar o requisito ou ID; `apply` só prossegue depois de digitar `APPLY <ID>`. O chat usa o provedor OpenAI-compatible configurado e não executa ações nem aplica alterações. `Criar plano` transforma a última solicitação do chat em um plano local revisável.
 
-Há quatro abas: `WORKSPACE`, `DIFF`, `LOGS` e `SPLIT`. A aba `SPLIT` é a visualização padrão e mostra o inventário do workspace, o diff/detalhe e os logs simultaneamente. A aba `LOGS` recebe eventos do próprio gerador e do módulo `logging` padrão em tempo real, com atualização automática a cada 200 ms. Use `Tab` ou `1`/`2`/`3`/`4` para trocar de painel.
+Ao executar do checkout fonte, instale as dependências com `python3 -m pip install -e .`.
+
+As mensagens do chat e o inventário carregado são enviados ao endpoint configurado. A árvore permite navegar pelos arquivos, e a aba `LOGS` recebe eventos do gerador em tempo real. Use `1`/`2`/`3`/`4` para abrir Workspace, Diff, Logs e Chat.
 
 Temas disponíveis: `kodoo-dark`, `high-contrast` e `mono`. Também é possível passar um JSON customizado, ou criar `~/.konstructor/theme.json` para torná-lo o tema padrão. Exemplo:
 
@@ -107,7 +109,7 @@ Temas disponíveis: `kodoo-dark`, `high-contrast` e `mono`. Também é possível
 
 ## Instalação global
 
-O script instala a TUI e o launcher `konstructor` sem dependências externas. Como root, o padrão é `/usr/local`; como usuário comum, o padrão é `~/.local`. O prefixo pode ser escolhido explicitamente:
+O script instala o launcher `konstructor` e suas dependências Python, incluindo Textual. A instalação do Textual requer acesso ao índice de pacotes Python. Como root, o padrão é `/usr/local`; como usuário comum, o padrão é `~/.local`. O prefixo pode ser escolhido explicitamente:
 
 ```bash
 ./install.sh --prefix "$HOME/.local"

@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import curses
 import logging
 import threading
-import textwrap
 from collections import deque
 from datetime import datetime
 from pathlib import Path
@@ -53,11 +51,6 @@ class TUILogHandler(logging.Handler):
             self.handleError(record)
 
 
-def _clip(value: object, width: int) -> str:
-    text = str(value).replace("\n", " ")
-    return text if len(text) <= width else text[: max(0, width - 1)] + "…"
-
-
 class GeneratorTUI:
     """Estado e controlador da TUI; métodos de navegação e comandos são testáveis sem curses."""
 
@@ -97,7 +90,7 @@ class GeneratorTUI:
         expected = self.config.key_for(action)
         aliases = {"TAB": "\t", "ENTER": "\n", "PAGEUP": "PAGEUP", "PAGEDOWN": "PAGEDOWN"}
         if isinstance(key, int):
-            special = {curses.KEY_UP: "UP", curses.KEY_DOWN: "DOWN", curses.KEY_PPAGE: "PAGEUP", curses.KEY_NPAGE: "PAGEDOWN", 10: "ENTER", 13: "ENTER", 9: "TAB"}
+            special = {259: "UP", 258: "DOWN", 339: "PAGEUP", 338: "PAGEDOWN", 10: "ENTER", 13: "ENTER", 9: "TAB"}
             actual = special.get(key, chr(key) if 0 <= key < 256 else "")
         else:
             actual = aliases.get(key.upper(), key) if len(key) > 1 else key
@@ -185,95 +178,6 @@ class GeneratorTUI:
             self.log(f"Aplicação concluída: {len(applied)} arquivos."); return {"applied": applied}
         data = status(self.root); self._set_content("STATUS", "\n".join(f"{k}: {v}" for k, v in data.items())); self.log("Status carregado."); return data
 
-    def prompt(self, screen: curses.window, label: str, default: str = "") -> str:
-        height, width = screen.getmaxyx(); screen.move(height - 2, 0); screen.clrtoeol()
-        screen.addstr(height - 2, 0, _clip(f"{label} [{default}]: ", width - 1), curses.A_BOLD); screen.refresh(); curses.echo()
-        try:
-            raw = screen.getstr(height - 2, min(len(label) + len(default) + 4, width - 2), max(1, width - len(label) - 6))
-            return raw.decode("utf-8", "replace").strip() or default
-        finally: curses.noecho()
-
-    def confirm(self, screen: curses.window, message: str) -> bool:
-        return self.prompt(screen, f"{message} Digite 'sim' para confirmar").lower() == "sim"
-
-    def execute(self, screen: curses.window, action: str) -> None:
-        try:
-            if action == "plan": result = self.perform(action, request=self.prompt(screen, "Requisito"))
-            elif action == "generate": result = self.perform(action, plan_id=self.prompt(screen, "ID do plano", self.plan_id))
-            elif action in {"validate", "diff"}: result = self.perform(action, changeset_id=self.prompt(screen, "ID do changeset", self.changeset_id))
-            elif action == "apply":
-                cid = self.prompt(screen, "ID exato do changeset", self.changeset_id)
-                result = self.perform(action, changeset_id=cid, approve=self.confirm(screen, f"Aplicar {cid}?"))
-            else: result = self.perform(action)
-            if action == "index": self._set_content("ÍNDICE", "\n".join(f"{x['kind']}  {x['path']}  {x['detail']}" for x in result.get("findings", [])) or "Nenhuma evidência encontrada.")
-        except Exception as exc:
-            self.log(f"ERRO: {exc}"); self._set_content("ERRO", str(exc))
-
-    def _color(self, name: str) -> int:
-        return {"black": curses.COLOR_BLACK, "red": curses.COLOR_RED, "green": curses.COLOR_GREEN, "yellow": curses.COLOR_YELLOW, "blue": curses.COLOR_BLUE, "magenta": curses.COLOR_MAGENTA, "cyan": curses.COLOR_CYAN, "white": curses.COLOR_WHITE, "gray": curses.COLOR_WHITE, "default": -1}.get(name, curses.COLOR_WHITE)
-
-    def draw(self, screen: curses.window) -> None:
-        screen.erase(); height, width = screen.getmaxyx()
-        if height < 14 or width < 70: screen.addstr(0, 0, "Aumente o terminal para pelo menos 70x14."); screen.refresh(); return
-        screen.bkgd(" ", curses.color_pair(8)); screen.attron(curses.color_pair(1) | curses.A_BOLD); screen.addstr(0, 0, _clip("KONSTRUCTOR · TUI", width - 1)); screen.attroff(curses.color_pair(1) | curses.A_BOLD)
-        screen.addstr(1, 0, _clip(f"workspace: {self.root}  ·  tema: {self.theme.name}", width - 1))
-        tab_text = "  ".join((f"[{tab.upper()}]" if tab == self.view else tab.upper()) for tab in TABS); screen.addstr(2, 1, _clip(tab_text + "  (Tab/1/2/3/4 alterna)", width - 2), curses.A_BOLD)
-        menu_width = min(29, width // 3); screen.vline(3, menu_width, curses.ACS_VLINE, height - 6)
-        for i, (label, _) in enumerate(MENU): screen.addstr(4 + i, 1, _clip(label, menu_width - 3), curses.color_pair(2) if i == self.selected else curses.A_NORMAL)
-        content_top, content_bottom = 4, height - 3
-        if self.view == "split":
-            available = width - menu_width - 2
-            first = min(menu_width + max(20, available // 3), width - 30)
-            second = min(max(menu_width + max(40, (available * 2) // 3), first + 15), width - 15)
-            screen.vline(3, first, curses.ACS_VLINE, height - 6); screen.vline(3, second, curses.ACS_VLINE, height - 6)
-            self._draw_lines(screen, self.workspace_lines, menu_width + 2, content_top, first - 2, content_bottom, "WORKSPACE")
-            self._draw_lines(screen, self.diff_lines if self.diff_lines != ["Nenhum diff carregado."] else self.detail, first + 2, content_top, second - 2, content_bottom, "DIFF / DETALHE")
-            self._draw_lines(screen, self.log_buffer.snapshot(), second + 2, content_top, width - 2, content_bottom, "LOGS · LIVE")
-        elif self.view == "workspace": self._draw_lines(screen, self.workspace_lines, menu_width + 2, content_top, width - 2, content_bottom, "WORKSPACE")
-        elif self.view == "logs": self._draw_lines(screen, self.log_buffer.snapshot(), menu_width + 2, content_top, width - 2, content_bottom, "LOGS · LIVE")
-        else: self._draw_lines(screen, self.diff_lines if self.diff_lines != ["Nenhum diff carregado."] else self.detail, menu_width + 2, content_top, width - 2, content_bottom, "DIFF")
-        screen.hline(height - 4, 0, curses.ACS_HLINE, width); screen.addstr(height - 3, 1, _clip(" · ".join(self.messages[-3:]), width - 2)); screen.addstr(height - 1, 1, "↑↓ menu  Enter executar  Tab/1/2/3/4 abas  PgUp/PgDn rolar  q sair"); screen.refresh()
-
-    def _draw_lines(self, screen: curses.window, lines: list[str], left: int, top: int, right: int, bottom: int, title: str) -> None:
-        width = max(1, right - left); screen.addstr(top - 1, left, _clip(title, width), curses.A_BOLD); row = top
-        flattened = []
-        for line in lines[self.scroll:]: flattened.extend(textwrap.wrap(line, width) or [""])
-        for line in flattened:
-            if row >= bottom: break
-            attr = curses.color_pair(6) if line.startswith("+") else curses.color_pair(7) if line.startswith("-") else curses.A_NORMAL
-            screen.addstr(row, left, _clip(line, width), attr); row += 1
-
-    def run(self, screen: curses.window) -> None:
-        curses.curs_set(0); curses.start_color(); curses.use_default_colors()
-        colors = {"header": 1, "selected": 2, "muted": 3, "success": 4, "error": 5, "diff_add": 6, "diff_del": 7, "panel": 8}
-        for name, pair in colors.items():
-            fg = self._color(getattr(self.theme, name)); curses.init_pair(pair, fg, -1)
-        handler = TUILogHandler(self.log_buffer)
-        handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)s  %(message)s", "%H:%M:%S"))
-        root_logger = logging.getLogger(); root_logger.addHandler(handler)
-        screen.keypad(True); screen.timeout(self.config.refresh_ms)
-        try:
-            while True:
-                self.draw(screen); key = screen.getch()
-                if key == -1: continue
-                if self.shortcut_matches(key, "quit"): return
-                if self.shortcut_matches(key, "up"): self.move_selection(-1)
-                elif self.shortcut_matches(key, "down"): self.move_selection(1)
-                elif self.shortcut_matches(key, "page_up"): self.scroll = max(0, self.scroll - 5)
-                elif self.shortcut_matches(key, "page_down"): self.scroll += 5
-                elif self.shortcut_matches(key, "next_view"): self.cycle_view()
-                elif self.shortcut_matches(key, "workspace_view"): self.select_view("workspace")
-                elif self.shortcut_matches(key, "diff_view"): self.select_view("diff")
-                elif self.shortcut_matches(key, "logs_view"): self.select_view("logs")
-                elif self.shortcut_matches(key, "split_view"): self.select_view("split")
-                elif self.shortcut_matches(key, "execute"):
-                    action = MENU[self.selected][1]
-                    if action == "quit": return
-                    self.execute(screen, action)
-        finally:
-            root_logger.removeHandler(handler); handler.close()
-
-
 def run_tui(root: str | Path, theme: str | Path | None = None, config: str | Path | None = None) -> None:
-    import curses
-    curses.wrapper(GeneratorTUI(Path(root), theme, config).run)
+    from .textual_tui import run_textual_tui
+    run_textual_tui(root, theme, config)
