@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -79,38 +80,70 @@ def _headers(rows: list[dict], row_num: int) -> dict[int, str]:
 def import_workbook(root: str | Path, workbook: str | Path) -> dict:
     root = ensure_root(root); workbook = Path(workbook).expanduser().resolve()
     sheets = read_xlsx(workbook)
-    import hashlib
     digest = hashlib.sha256(workbook.read_bytes()).hexdigest()
+    records = {}
+    for sheet, rows in sheets.items():
+        header_row = TABLE_HEADERS.get(sheet)
+        headers = _headers(rows, header_row) if header_row else {}
+        id_col = next((col for col, name in headers.items() if name.casefold() in {"id", "function id"}), None)
+        records[sheet] = []
+        for row in rows:
+            if header_row and (row["row"] == header_row or row["row"] < header_row): continue
+            values = {headers.get(col, f"column_{col}"): val for col, val in row["cells"].items()}
+            if not values: continue
+            if id_col is not None:
+                raw_id = row["cells"].get(id_col)
+                if raw_id is None or str(raw_id).startswith("="): continue
+            if header_row and any(str(value).strip().casefold() in {"id", "function id"} for value in values.values()): continue
+            rid = next((str(v).strip() for k, v in values.items() if k.lower() in {"id", "function id"} and str(v).strip()), f"{sheet}:{row['row']}")
+            records[sheet].append({"row": row["row"], "id": rid, "data": values})
+    return _store_import(root, str(workbook), digest, records)
+
+
+def import_json(root: str | Path, seed: str | Path) -> dict:
+    root = ensure_root(root); seed = Path(seed).expanduser().resolve()
+    raw = seed.read_bytes()
+    payload = json.loads(raw)
+    if not isinstance(payload, dict) or payload.get("version") != 1 or not isinstance(payload.get("sheets"), dict):
+        raise ValueError("roadmap JSON precisa de version=1 e objeto sheets")
+    records = {}
+    for sheet, rows in payload["sheets"].items():
+        if not isinstance(sheet, str) or not isinstance(rows, list):
+            raise ValueError("cada aba do roadmap deve ser uma lista de registros")
+        records[sheet] = []
+        row_numbers = set()
+        for index, item in enumerate(rows, start=1):
+            if not isinstance(item, dict) or not isinstance(item.get("id"), str) or not item["id"].strip() or not isinstance(item.get("data"), dict):
+                raise ValueError(f"registro inválido na aba {sheet}, posição {index}")
+            if any(not isinstance(key, str) for key in item["data"]):
+                raise ValueError(f"colunas devem ter nomes string: {sheet}, posição {index}")
+            row_number = item.get("row", index)
+            if not isinstance(row_number, int) or isinstance(row_number, bool) or row_number < 1 or row_number in row_numbers:
+                raise ValueError(f"número de linha inválido ou duplicado: {sheet}, posição {index}")
+            row_numbers.add(row_number)
+            records[sheet].append({"row": row_number, "id": item["id"].strip(), "data": item["data"]})
+    return _store_import(root, str(seed), hashlib.sha256(raw).hexdigest(), records)
+
+
+def _store_import(root: Path, source: str, digest: str, sheets: dict[str, list[dict]]) -> dict:
     db = _database(root)
     try:
         with db:
             previous = db.execute("SELECT id FROM imports WHERE active=1 ORDER BY id DESC LIMIT 1").fetchone()
             db.execute("UPDATE imports SET active=0")
-            cur = db.execute("INSERT INTO imports(source,sha256,imported_at,active) VALUES(?,?,?,1)", (str(workbook), digest, datetime.now(timezone.utc).isoformat()))
+            cur = db.execute("INSERT INTO imports(source,sha256,imported_at,active) VALUES(?,?,?,1)", (source, digest, datetime.now(timezone.utc).isoformat()))
             import_id = cur.lastrowid
             count = 0
             for sheet, rows in sheets.items():
-                header_row = TABLE_HEADERS.get(sheet)
-                headers = _headers(rows, header_row) if header_row else {}
-                id_col = next((col for col, name in headers.items() if name.casefold() in {"id", "function id"}), None)
                 for row in rows:
-                    if header_row and row["row"] < header_row: continue
-                    if row["row"] == header_row: continue
-                    values = {headers.get(col, f"column_{col}"): val for col, val in row["cells"].items()}
-                    if not values: continue
-                    if id_col is not None:
-                        raw_id = row["cells"].get(id_col)
-                        if raw_id is None or str(raw_id).startswith("="): continue
-                    if header_row and any(str(value).strip().casefold() in {"id", "function id"} for value in values.values()): continue
-                    rid = next((str(v).strip() for k, v in values.items() if k.lower() in {"id", "function id"} and str(v).strip()), f"{sheet}:{row['row']}")
-                    db.execute("INSERT INTO records VALUES(?,?,?,?,?)", (import_id, sheet, row["row"], rid, json.dumps(values, ensure_ascii=False)))
+                    db.execute("INSERT INTO records VALUES(?,?,?,?,?)", (import_id, sheet, row["row"], row["id"], json.dumps(row["data"], ensure_ascii=False)))
                     count += 1
             if previous:
                 db.execute("""INSERT INTO updates(import_id,record_id,status,evidence,note,updated_at)
                     SELECT ?,u.record_id,u.status,u.evidence,u.note,u.updated_at FROM updates u
                     WHERE u.import_id=? AND EXISTS(SELECT 1 FROM records r WHERE r.import_id=? AND r.record_id=u.record_id)""",
                     (import_id, previous["id"], import_id))
-        return {"import_id": import_id, "source": str(workbook), "sha256": digest, "sheets": len(sheets), "records": count}
+        return {"import_id": import_id, "source": source, "sha256": digest, "sheets": len(sheets), "records": count}
     finally: db.close()
 
 

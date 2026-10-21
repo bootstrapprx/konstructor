@@ -1,0 +1,123 @@
+{
+  "version": 1,
+  "title": "Konstructor — roadmap inicial",
+  "sheets": {
+    "Roadmap": [
+      {
+        "id": "KON-001",
+        "data": {
+          "ID": "KON-001",
+          "Title": "TUI Textual com árvore, chat e editor de arquivos",
+          "Priority": "P0",
+          "Initial Status": "Em andamento",
+          "Goal": "Permitir navegar no workspace, conversar com o provedor configurado e editar arquivos manualmente sem sair da TUI.",
+          "Acceptance Criteria": "Abrir e criar arquivos dentro do workspace; bloquear path fora da raiz; detectar alterações concorrentes antes de salvar."
+        }
+      },
+      {
+        "id": "KON-002",
+        "data": {
+          "ID": "KON-002",
+          "Title": "Receita manual para criar apps Kodoo",
+          "Priority": "P0",
+          "Initial Status": "Em andamento",
+          "Goal": "Documentar um fluxo reproduzível usando Neovim ou o editor integrado da TUI.",
+          "Acceptance Criteria": "Receita cobre exploração de convenções, criação de arquivos, registro no workspace, validação e revisão."
+        }
+      },
+      {
+        "id": "KON-003",
+        "data": {
+          "ID": "KON-003",
+          "Title": "Wizard visual de app integrado à TUI",
+          "Priority": "P1",
+          "Initial Status": "Planejado",
+          "Goal": "Coletar nome, objetivo, plataformas, módulos e decisões de produto em etapas revisáveis.",
+          "Acceptance Criteria": "Wizard cria proposta; valida workspace e colisões; mostra diff antes de qualquer aplicação."
+        }
+      },
+      {
+        "id": "KON-004",
+        "data": {
+          "ID": "KON-004",
+          "Title": "Edição assistida de apps e módulos existentes",
+          "Priority": "P1",
+          "Initial Status": "Planejado",
+          "Goal": "Permitir selecionar arquivos existentes, pedir mudanças ao provedor e revisar staging antes de aplicar.",
+          "Acceptance Criteria": "O modelo só altera arquivos selecionados; diff, validação e aprovação continuam obrigatórios."
+        }
+      },
+      {
+        "id": "KON-005",
+        "data": {
+          "ID": "KON-005",
+          "Title": "Gerenciar roadmap do Konstructor pela TUI",
+          "Priority": "P1",
+          "Initial Status": "Planejado",
+          "Goal": "Consultar itens, decisões e gates; atualizar estado e evidência sem editar JSON ou planilha.",
+          "Acceptance Criteria": "TUI lista, filtra, abre e atualiza registros usando a mesma base SQLite do CLI."
+        }
+      },
+      {
+        "id": "KON-006",
+        "data": {
+          "ID": "KON-006",
+          "Title": "Fluxo consistente entre chat OpenAI-compatible e Codex via MCP",
+          "Priority": "P1",
+          "Initial Status": "Planejado",
+          "Goal": "Manter as mesmas operações e limites de segurança ao usar o provedor configurado ou Codex como cliente MCP.",
+          "Acceptance Criteria": "Chat não aplica mudanças; operações de escrita exigem diff revisável e aprovação explícita."
+        }
+      }
+    ],
+    "Decisões pendentes": [
+      {
+        "id": "KON-D-001",
+        "data": {
+          "ID": "KON-D-001",
+          "Decision": "Quais campos do domínio devem ser obrigatórios no wizard de app além de nome e objetivo?",
+          "Status": "Aberta",
+          "Impact": "Define o contrato do wizard e a qualidade das propostas iniciais."
+        }
+      },
+      {
+        "id": "KON-D-002",
+        "data": {
+          "ID": "KON-D-002",
+          "Decision": "O scaffold deve incluir módulos Direct automaticamente ou apenas registrar a decisão para revisão?",
+          "Status": "Aberta",
+          "Impact": "Evita acoplar módulos e superfícies de produto sem decisão explícita."
+        }
+      }
+    ],
+    "Gates de aceite": [
+      {
+        "id": "KON-G-001",
+        "data": {
+          "ID": "KON-G-001",
+          "Gate": "Editor TUI preserva arquivos e impede sobrescrita concorrente ou escape do workspace.",
+          "Status": "Aberto",
+          "Evidence": "Verificação automatizada de path, hash-base e salvamento atômico."
+        }
+      },
+      {
+        "id": "KON-G-002",
+        "data": {
+          "ID": "KON-G-002",
+          "Gate": "Uma app mínima pode ser criada pela receita usando Neovim e pela TUI, e passa pelos checks do workspace.",
+          "Status": "Aberto",
+          "Evidence": "Receita executada nos dois fluxos; cargo check/test registrados."
+        }
+      },
+      {
+        "id": "KON-G-003",
+        "data": {
+          "ID": "KON-G-003",
+          "Gate": "Instalação limpa inclui Textual sem modificar o ambiente Python global.",
+          "Status": "Aberto",
+          "Evidence": "Instalação isolada e inicialização da TUI verificadas."
+        }
+      }
+    ]
+  }
+}

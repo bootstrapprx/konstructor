@@ -65,6 +65,8 @@ konstructor roadmap update /mnt/toshiba/git/kodoo RM-003 --status 'Em andamento'
 konstructor roadmap export /mnt/toshiba/git/kodoo /tmp/kodoo-roadmap-backup.json
 ```
 
+O roadmap inicial do próprio Konstructor está em `konstructor/roadmap_seed.json`. Para carregá-lo em uma base associada ao checkout Konstructor, rode `konstructor roadmap seed /mnt/toshiba/git/konstructor` (ou use `konstructor_roadmap_seed` pelo MCP). A importação JSON aceita tanto esse seed quanto backups exportados.
+
 Reimportar uma revisão da planilha cria um novo snapshot e o torna ativo; snapshots e histórico anteriores são mantidos. A planilha de origem não é apagada automaticamente.
 
 Para editar arquivos existentes, selecione explicitamente os caminhos que o modelo poderá alterar:
@@ -83,7 +85,9 @@ Para workspaces grandes, `KONSTRUCTOR_TMPDIR` escolhe onde a cópia isolada ser�
 
 ## Interface TUI
 
-`tui` abre a interface Textual com árvore navegável do workspace e abas para detalhes, diff, logs e chat. Selecione uma ação no menu e use o campo abaixo para informar o requisito ou ID; `apply` só prossegue depois de digitar `APPLY <ID>`. O chat usa o provedor OpenAI-compatible configurado e não executa ações nem aplica alterações. `Criar plano` transforma a última solicitação do chat em um plano local revisável.
+`tui` abre a interface Textual com árvore navegável do workspace e abas para detalhes, diff, logs e chat. Na aba Workspace, selecione um arquivo para editar, use o campo de caminho relativo para criar um arquivo e salve ou descarte explicitamente. O editor bloqueia caminhos fora do workspace e recusa salvar sobre alterações externas detectadas. Para criar um app manualmente com Neovim ou pela TUI, siga a [receita de criação de apps](docs/APP_CREATION_RECIPE.md).
+
+Selecione uma ação no menu e use o campo abaixo para informar o requisito ou ID; `apply` só prossegue depois de digitar `APPLY <ID>`. O chat usa o provedor OpenAI-compatible configurado e não executa ações nem aplica alterações. `Criar plano` transforma a última solicitação do chat em um plano local revisável.
 
 Ao executar do checkout fonte, instale as dependências com `python3 -m pip install -e .`.
 

@@ -22,7 +22,7 @@ class MCPServer:
         ("konstructor_changeset_apply",{"changeset_id":"string","approval_token":"string"},"Aplica changeset aprovado no terminal",False),
         ("konstructor_roadmap_dashboard",{},"Resumo do roadmap",True),("konstructor_roadmap_list",{"sheet":"string","status":"string","priority":"string"},"Lista itens do roadmap",True),
         ("konstructor_roadmap_get",{"id":"string"},"Mostra item do roadmap",True),("konstructor_roadmap_update",{"id":"string","status":"string","evidence":"string","note":"string"},"Atualiza estado do roadmap",False),
-        ("konstructor_roadmap_import",{"workbook":"string"},"Importa planilha XLSX",False),("konstructor_roadmap_export",{"filename":"string"},"Exporta backup JSON para estado local",False)]
+        ("konstructor_roadmap_import",{"workbook":"string"},"Importa planilha XLSX ou seed JSON",False),("konstructor_roadmap_seed",{},"Carrega seed inicial do Konstructor",False),("konstructor_roadmap_export",{"filename":"string"},"Exporta backup JSON para estado local",False)]
         return [{"name":n,"description":d,"inputSchema":{"type":"object","properties":{k:{"type":v} for k,v in props.items()},"required":[k for k in props if k in {"request","changeset_id","approval_token","id","workbook"}],"additionalProperties":False},"annotations":{"readOnlyHint":ro,"destructiveHint":not ro}} for n,props,d,ro in defs]
     def call(self,name,a):
         if name=="konstructor_workspace_inspect": return KodooRepositoryAdapter(self.root).inspect()
@@ -43,7 +43,10 @@ class MCPServer:
         if name=="konstructor_roadmap_list": return roadmap.list_records(self.root,a.get("sheet"),a.get("status"),a.get("priority"))
         if name=="konstructor_roadmap_get": return roadmap.show_record(self.root,a["id"])
         if name=="konstructor_roadmap_update": return roadmap.update_record(self.root,a["id"],a.get("status"),a.get("evidence"),a.get("note"))
-        if name=="konstructor_roadmap_import": return roadmap.import_workbook(self.root,a["workbook"])
+        if name=="konstructor_roadmap_import":
+            importer=roadmap.import_json if Path(a["workbook"]).suffix.lower()==".json" else roadmap.import_workbook
+            return importer(self.root,a["workbook"])
+        if name=="konstructor_roadmap_seed": return roadmap.import_json(self.root,Path(__file__).with_name("roadmap_seed.json"))
         if name=="konstructor_roadmap_export":
             filename=a.get("filename","roadmap-backup.json")
             if Path(filename).name!=filename: raise ValueError("filename deve ser nome simples")

@@ -34,7 +34,8 @@ def main(argv=None):
     provider=sub.add_parser("provider", help="LLM provider status and structured generation"); provider.add_argument("action", choices=("status", "complete")); provider.add_argument("--prompt"); provider.add_argument("--schema", help="JSON schema inline"); provider.add_argument("--model"); provider.add_argument("--base-url")
     edit=sub.add_parser("edit", help="propor edição de arquivos existentes com LLM"); edit.add_argument("path"); edit.add_argument("request"); edit.add_argument("files", nargs="*"); edit.add_argument("--file", dest="selected_files", action="append", default=[]); edit.add_argument("--model"); edit.add_argument("--base-url")
     roadmap=sub.add_parser("roadmap", help="roadmap dinâmico importado da planilha"); rsub=roadmap.add_subparsers(dest="roadmap_command", required=True)
-    imp=rsub.add_parser("import", help="importar planilha XLSX"); imp.add_argument("path", nargs="?", default=KODOO_DEFAULT); imp.add_argument("workbook", nargs="?", default=str(Path(__file__).resolve().parent.parent / "context/kodoo-roadmap.xlsx"))
+    imp=rsub.add_parser("import", help="importar planilha XLSX ou seed JSON"); imp.add_argument("path", nargs="?", default=KODOO_DEFAULT); imp.add_argument("workbook", nargs="?", default=str(Path(__file__).resolve().parent.parent / "context/kodoo-roadmap.xlsx"))
+    seed=rsub.add_parser("seed", help="carregar roadmap inicial do Konstructor"); seed.add_argument("path", help="workspace Konstructor que receberá o seed")
     dash=rsub.add_parser("dashboard"); dash.add_argument("path", nargs="?", default=KODOO_DEFAULT)
     listing=rsub.add_parser("list"); listing.add_argument("path", nargs="?", default=KODOO_DEFAULT); listing.add_argument("--sheet"); listing.add_argument("--status"); listing.add_argument("--priority")
     show=rsub.add_parser("show"); show.add_argument("path"); show.add_argument("id")
@@ -114,7 +115,10 @@ def main(argv=None):
             cs=stage_edits(Path(args.path),args.request,selected,provider)
             emit({"changeset_id":cs.id,"staging":cs.staging,"files":cs.files,"next":"review diff, validate, then apply --yes"},args.json)
         elif args.command=="roadmap":
-            if args.roadmap_command == "import": result=roadmap_store.import_workbook(args.path,args.workbook)
+            if args.roadmap_command == "import":
+                importer = roadmap_store.import_json if Path(args.workbook).suffix.lower() == ".json" else roadmap_store.import_workbook
+                result=importer(args.path,args.workbook)
+            elif args.roadmap_command == "seed": result=roadmap_store.import_json(args.path, Path(__file__).with_name("roadmap_seed.json"))
             elif args.roadmap_command == "dashboard": result=roadmap_store.dashboard(args.path)
             elif args.roadmap_command == "list": result=roadmap_store.list_records(args.path,args.sheet,args.status,args.priority)
             elif args.roadmap_command == "show": result=roadmap_store.show_record(args.path,args.id)
