@@ -151,13 +151,13 @@ konstructor tui /caminho/kodoo --theme high-contrast
 
 ## Acesso via Web Terminal
 
-O comando `web` expõe a mesma camada de comandos da TUI por HTTP e SSE. O servidor fica desabilitado sem `--enable` e aceita somente bind loopback; acesso remoto não está disponível porque os endpoints de controle não têm autenticação:
+O comando `web` abre uma bancada visual para o roadmap, critérios de aceite e evidências, além de expor a camada de comandos da TUI por HTTP e SSE. O servidor fica desabilitado sem `--enable` e aceita somente bind loopback; acesso remoto não está disponível porque os endpoints de controle não têm autenticação:
 
 ```bash
 konstructor web /caminho/kodoo --enable --host 127.0.0.1 --port 8765
 ```
 
-Abra `http://127.0.0.1:8765/` em máquina confiável. O navegador recebe atualizações de workspace, diff e logs pelo endpoint `/events`; comandos usam `/action` e `/input`.
+Abra `http://127.0.0.1:8765/` em máquina confiável. A bancada permite criar itens, editar critérios e registrar evidências. Aprovar ou reabrir um critério exige digitar a confirmação apresentada no terminal que iniciou o servidor; sem terminal interativo, a revisão fica indisponível. As operações anteriores da TUI continuam em `/terminal`; a API de workspace também permanece em `/state`, `/events`, `/action` e `/input`.
 
 ## Atalhos configuráveis
 
