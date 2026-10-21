@@ -69,6 +69,20 @@ konstructor roadmap export /mnt/toshiba/git/kodoo /tmp/kodoo-roadmap-backup.json
 
 `konstructor roadmap init /caminho/do/workspace` inicializa o esquema vazio sem substituir dados existentes. `konstructor roadmap add "Criar função X" --path /caminho/do/workspace` adiciona trabalho pelo CLI. `konstructor roadmap suggest WORK-0001 --path /caminho/do/workspace` pede uma sugestão de local ao provedor. `seed` e `konstructor_roadmap_seed` continuam disponíveis como aliases compatíveis e não apagam dados existentes. Backups JSON preservam esquema, registros e atualizações.
 
+Cada item da aba `Roadmap` expõe `completion` derivado dos critérios em `Definition of Done / Acceptance Criteria`; por padrão, cada linha vira um critério revisável. Após importar, os critérios podem ser mantidos diretamente no Konstructor:
+
+```bash
+konstructor roadmap criteria-set WORK-0001 --path /caminho/kodoo \
+  --criterion 'A função retorna o resultado esperado' \
+  --criterion 'O caso de erro é tratado'
+konstructor roadmap show /caminho/kodoo WORK-0001
+konstructor roadmap evidence-add WORK-0001 changeset CHANGESET_ID --path /caminho/kodoo
+konstructor roadmap criterion-review WORK-0001 AC-ID --path /caminho/kodoo \
+  --decision passed --evidence-id EVD-ID
+```
+
+`criterion-review` mostra o critério e as evidências, exige terminal local e confirmação digitando a decisão; o revisor vem da conta do sistema. O MCP pode registrar evidências, mas não aprovar critérios. Evidência `changeset` precisa estar aplicada, validada e corresponder aos arquivos atuais. `file` guarda hash e fica inválida se o arquivo mudar. Evidências `command` e `manual` são declarações para avaliação humana, não executam comandos automaticamente. `roadmap update --status` não pode declarar conclusão; `completion.state` passa a `complete` somente quando todos os critérios têm revisão aprovada e evidência válida. Revisões e evidências compatíveis são preservadas em reimportações e backups.
+
 Reimportar uma revisão da planilha cria um novo snapshot e o torna ativo; snapshots e histórico anteriores são mantidos. A planilha de origem não é apagada automaticamente.
 
 Para editar arquivos existentes, selecione explicitamente os caminhos que o modelo poderá alterar:

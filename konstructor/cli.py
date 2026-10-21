@@ -1,5 +1,5 @@
 from __future__ import annotations
-import argparse, json, os, sys
+import argparse, getpass, json, os, sys
 from pathlib import Path
 from .repository import KodooRepositoryAdapter
 from .planner import make_plan, write_plan
@@ -39,6 +39,9 @@ def main(argv=None):
     seed=rsub.add_parser("seed", help="alias compatível de roadmap init"); seed.add_argument("path", help="workspace Konstructor que receberá o esquema vazio")
     add=rsub.add_parser("add", help="adicionar item de trabalho"); add.add_argument("title"); add.add_argument("--path", default=WORKSPACE_DEFAULT); add.add_argument("--description", default=""); add.add_argument("--priority", default="P2")
     suggest=rsub.add_parser("suggest", help="sugerir módulo e arquivo para um item do roadmap"); suggest.add_argument("id"); suggest.add_argument("--path", default=WORKSPACE_DEFAULT); suggest.add_argument("--location-hint", default="")
+    evidence=rsub.add_parser("evidence-add", help="registrar evidência para um item do roadmap"); evidence.add_argument("id"); evidence.add_argument("kind", choices=("changeset", "file", "command", "manual")); evidence.add_argument("reference"); evidence.add_argument("--path", default=WORKSPACE_DEFAULT); evidence.add_argument("--summary", default="")
+    review=rsub.add_parser("criterion-review", help="revisar critério localmente com confirmação explícita"); review.add_argument("id"); review.add_argument("criterion_id"); review.add_argument("--path", default=WORKSPACE_DEFAULT); review.add_argument("--decision", choices=("passed", "needs_work"), required=True); review.add_argument("--evidence-id", action="append", default=[]); review.add_argument("--note", default="")
+    criteria=rsub.add_parser("criteria-set", help="definir os critérios ativos de um item"); criteria.add_argument("id"); criteria.add_argument("--path", default=WORKSPACE_DEFAULT); criteria.add_argument("--criterion", action="append", default=[])
     dash=rsub.add_parser("dashboard"); dash.add_argument("path", nargs="?", default=KODOO_DEFAULT)
     listing=rsub.add_parser("list"); listing.add_argument("path", nargs="?", default=KODOO_DEFAULT); listing.add_argument("--sheet"); listing.add_argument("--status"); listing.add_argument("--priority")
     show=rsub.add_parser("show"); show.add_argument("path"); show.add_argument("id")
@@ -126,6 +129,21 @@ def main(argv=None):
             elif args.roadmap_command == "suggest":
                 from .capabilities import suggest_location
                 result=suggest_location(args.path,roadmap_store.show_record(args.path,args.id),OpenAICompatibleProvider(),args.location_hint)
+            elif args.roadmap_command == "evidence-add": result=roadmap_store.add_evidence(args.path,args.id,args.kind,args.reference,args.summary)
+            elif args.roadmap_command == "criterion-review":
+                if not sys.stdin.isatty(): raise PermissionError("revisão de aceite exige confirmação interativa local")
+                item=roadmap_store.show_record(args.path,args.id)
+                criterion=next((row for row in item.get("completion",{}).get("criteria",[]) if row["id"]==args.criterion_id),None)
+                if not criterion: raise ValueError(f"critério não encontrado: {args.criterion_id}")
+                print(f"Item: {args.id}\nCritério: {criterion['text']}\nDecisão: {args.decision}")
+                evidence={row["evidence_id"]:row for row in item["completion"]["available_evidence"]}
+                for evidence_id in args.evidence_id:
+                    row=evidence.get(evidence_id)
+                    print(f"Evidência {evidence_id}: {row['kind']} · {row['reference']} · {row['verification']} · {row['summary']}" if row else f"Evidência ausente: {evidence_id}")
+                confirmation=f"REVIEW {args.id} {args.criterion_id} {args.decision}"
+                if input(f"Confirme a revisão digitando {confirmation}: ") != confirmation: raise PermissionError("revisão não confirmada")
+                result=roadmap_store.review_criterion(args.path,args.id,args.criterion_id,args.decision,args.evidence_id,getpass.getuser(),args.note)
+            elif args.roadmap_command == "criteria-set": result=roadmap_store.set_acceptance_criteria(args.path,args.id,args.criterion)
             elif args.roadmap_command == "dashboard": result=roadmap_store.dashboard(args.path)
             elif args.roadmap_command == "list": result=roadmap_store.list_records(args.path,args.sheet,args.status,args.priority)
             elif args.roadmap_command == "show": result=roadmap_store.show_record(args.path,args.id)

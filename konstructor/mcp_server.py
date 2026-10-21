@@ -23,8 +23,10 @@ class MCPServer:
         ("konstructor_roadmap_dashboard",{},"Resumo do roadmap",True),("konstructor_roadmap_list",{"sheet":"string","status":"string","priority":"string"},"Lista itens do roadmap",True),
         ("konstructor_roadmap_get",{"id":"string"},"Mostra item do roadmap",True),("konstructor_roadmap_update",{"id":"string","status":"string","evidence":"string","note":"string"},"Atualiza estado do roadmap",False),
         ("konstructor_roadmap_add",{"title":"string","description":"string","priority":"string"},"Adiciona item de trabalho",False),
+        ("konstructor_roadmap_criteria_set",{"id":"string","criteria":"array"},"Define critérios de aceite editáveis no roadmap",False),
+        ("konstructor_roadmap_evidence_add",{"id":"string","kind":"string","reference":"string","summary":"string"},"Registra evidência verificável ou atestada para um item",False),
         ("konstructor_roadmap_import",{"workbook":"string"},"Importa planilha XLSX ou backup JSON",False),("konstructor_roadmap_seed",{},"Inicializa o esquema vazio sem substituir dados existentes",False),("konstructor_roadmap_export",{"filename":"string"},"Exporta backup JSON para estado local",False)]
-        return [{"name":n,"description":d,"inputSchema":{"type":"object","properties":{k:{"type":v} for k,v in props.items()},"required":[k for k in props if k in {"request","changeset_id","approval_token","id","workbook","title"}],"additionalProperties":False},"annotations":{"readOnlyHint":ro,"destructiveHint":not ro}} for n,props,d,ro in defs]
+        return [{"name":n,"description":d,"inputSchema":{"type":"object","properties":{k:{"type":v} for k,v in props.items()},"required":[k for k in props if k in {"request","changeset_id","approval_token","id","workbook","title","kind","reference","criterion_id","decision","reviewer","criteria"}],"additionalProperties":False},"annotations":{"readOnlyHint":ro,"destructiveHint":not ro}} for n,props,d,ro in defs]
     def call(self,name,a):
         if name=="konstructor_workspace_inspect": return KodooRepositoryAdapter(self.root).inspect()
         if name=="konstructor_repository_index": return KodooRepositoryAdapter(self.root).index()
@@ -44,10 +46,12 @@ class MCPServer:
         if name=="konstructor_roadmap_list": return roadmap.list_records(self.root,a.get("sheet"),a.get("status"),a.get("priority"))
         if name=="konstructor_roadmap_get": return roadmap.show_record(self.root,a["id"])
         if name=="konstructor_roadmap_update": return roadmap.update_record(self.root,a["id"],a.get("status"),a.get("evidence"),a.get("note"))
+        if name=="konstructor_roadmap_evidence_add": return roadmap.add_evidence(self.root,a["id"],a["kind"],a["reference"],a.get("summary",""))
         if name=="konstructor_roadmap_import":
             importer=roadmap.import_json if Path(a["workbook"]).suffix.lower()==".json" else roadmap.import_workbook
             return importer(self.root,a["workbook"])
         if name=="konstructor_roadmap_add": return roadmap.create_work_item(self.root,a["title"],a.get("description",""),a.get("priority","P2"))
+        if name=="konstructor_roadmap_criteria_set": return roadmap.set_acceptance_criteria(self.root,a["id"],a["criteria"])
         if name=="konstructor_roadmap_seed": return roadmap.initialize_empty(self.root)
         if name=="konstructor_roadmap_export":
             filename=a.get("filename","roadmap-backup.json")

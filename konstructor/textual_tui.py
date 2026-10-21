@@ -196,6 +196,12 @@ class KonstructorTUI(App[None]):
         item = self._selected_work_item
         lines = [f"{item['id']}  ·  {item['sheet']}"]
         lines.extend(f"{key}: {value}" for key, value in item["data"].items() if value not in (None, ""))
+        if item.get("current"):
+            lines.extend(["", f"Estado atual: {item['current'].get('status') or 'sem atualização'}", f"Evidência registrada: {item['current'].get('evidence') or 'nenhuma'}", f"Nota: {item['current'].get('note') or 'nenhuma'}"])
+        if item.get("completion"):
+            lines.extend(["", f"Conclusão: {item['completion']['state']} ({item['completion']['criteria_passed']}/{item['completion']['criteria_total']} critérios)"])
+            lines.extend(f"{criterion['id']} · {criterion['state']} · {criterion['text']}" for criterion in item["completion"]["criteria"])
+            lines.extend(f"{evidence['evidence_id']} · {evidence['kind']} · {evidence['verification']} · {evidence['reference']}" for evidence in item["completion"]["available_evidence"])
         if self._location_suggestion:
             result = self._location_suggestion
             lines.extend(["", f"Sugestão: {result['module_path']}", f"Arquivo: {result['target_file']}", f"Confiança: {result['confidence']}", result["reason"], f"Perguntas: {'; '.join(result['questions']) or 'nenhuma'}"])
@@ -561,7 +567,8 @@ class KonstructorTUI(App[None]):
             self.query_one("#action-input", Input).value = result["changeset_id"]
         elif action == "apply" and result and self._work_item_changeset and self._work_item_changeset[1] == self.controller.changeset_id:
             item_id = self._work_item_changeset[0]
-            roadmap_store.update_record(self.controller.root, item_id, "Implementado; verificar aceite", self.controller.changeset_id, "Aplicado pela TUI; valide critérios de aceite.")
+            evidence = roadmap_store.add_evidence(self.controller.root, item_id, "changeset", self.controller.changeset_id, "Changeset aplicado pela TUI.")
+            roadmap_store.update_record(self.controller.root, item_id, "Aguardando aceite", evidence["evidence_id"], "Changeset aplicado; revise cada critério de aceite.")
             self._work_item_changeset = None
             self.run_worker(lambda: self._refresh_roadmap(item_id), thread=False)
 
