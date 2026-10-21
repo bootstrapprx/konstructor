@@ -54,7 +54,9 @@ As ferramentas cobrem inspeção/indexação, planos, propostas de app/módulo, 
 
 ## Roadmap dinâmico
 
-Importe a planilha herdada uma vez. O Konstructor guarda snapshot, hash, abas e linhas em SQLite sob `~/.konstructor/workspaces/`; alterações de estado/evidência ficam como histórico separado, e os status herdados continuam preservados como referência não verificada. Depois da importação, use a base do Konstructor em vez de editar a planilha:
+O roadmap pertence ao Konstructor e inicia vazio, com as 18 abas e os cabeçalhos da planilha preservados como esquema. Abra `konstructor tui` para criar e selecionar trabalho. A TUI pode pedir ao provedor OpenAI-compatible uma sugestão entre os módulos e arquivos indexados; **Preparar alteração** gera um changeset em staging para revisão, validação e aplicação explícita.
+
+Para usar os dados legados, importe a planilha uma vez. O Konstructor guarda snapshot, hash, abas e linhas em SQLite sob `~/.konstructor/workspaces/`; alterações de estado/evidência ficam como histórico separado, e os status herdados continuam preservados como referência não verificada. Depois da importação, use a base do Konstructor em vez de editar a planilha:
 
 ```bash
 konstructor roadmap import /mnt/toshiba/git/kodoo context/kodoo-roadmap.xlsx
@@ -65,7 +67,7 @@ konstructor roadmap update /mnt/toshiba/git/kodoo RM-003 --status 'Em andamento'
 konstructor roadmap export /mnt/toshiba/git/kodoo /tmp/kodoo-roadmap-backup.json
 ```
 
-O roadmap inicial do próprio Konstructor está em `konstructor/roadmap_seed.json`. Para carregá-lo em uma base associada ao checkout Konstructor, rode `konstructor roadmap seed /mnt/toshiba/git/konstructor` (ou use `konstructor_roadmap_seed` pelo MCP). A importação JSON aceita tanto esse seed quanto backups exportados.
+`konstructor roadmap init /caminho/do/workspace` inicializa o esquema vazio sem substituir dados existentes. `konstructor roadmap add "Criar função X" --path /caminho/do/workspace` adiciona trabalho pelo CLI. `konstructor roadmap suggest WORK-0001 --path /caminho/do/workspace` pede uma sugestão de local ao provedor. `seed` e `konstructor_roadmap_seed` continuam disponíveis como aliases compatíveis e não apagam dados existentes. Backups JSON preservam esquema, registros e atualizações.
 
 Reimportar uma revisão da planilha cria um novo snapshot e o torna ativo; snapshots e histórico anteriores são mantidos. A planilha de origem não é apagada automaticamente.
 

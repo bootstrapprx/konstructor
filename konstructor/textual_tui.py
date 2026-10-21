@@ -18,13 +18,16 @@ from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, DirectoryTree, Footer, Header, Input, Label, ListItem, ListView, MarkdownViewer, RichLog, Static, TabbedContent, TabPane, TextArea
 
 from .provider import OpenAICompatibleProvider
+from . import roadmap as roadmap_store
+from .capabilities import suggest_location
 from .safety import SafetyError, file_hash, safe_relative
 from .tui import GeneratorTUI, MENU, TUILogHandler
+from .workflow import diff, stage_edits
 
 ACTION_LABELS = {
-    "inspect": "Inspecionar workspace", "index": "Indexar workspace", "plan": "Criar plano",
-    "generate": "Gerar staging", "validate": "Validar changeset", "diff": "Revisar diff",
-    "apply": "Aplicar changeset aprovado", "status": "Status", "quit": "Sair",
+    "inspect": "Ver arquivos e estrutura", "index": "Mapear módulos e funções", "plan": "Transformar requisito em plano",
+    "generate": "Preparar mudanças do plano", "validate": "Verificar alteração preparada", "diff": "Revisar diferenças",
+    "apply": "Aplicar alteração revisada", "status": "Ver estado do workspace", "quit": "Sair",
 }
 
 
@@ -39,9 +42,9 @@ def _terminal_color(value: str) -> str:
 
 class KonstructorTUI(App[None]):
     TITLE = "Konstructor"
-    BINDINGS = [Binding("q", "quit", "Sair"), Binding("1", "show_tab('workspace')", "Workspace"),
-                Binding("2", "show_tab('diff')", "Diff"), Binding("3", "show_tab('logs')", "Logs"),
-                Binding("4", "show_tab('chat')", "Chat")]
+    BINDINGS = [Binding("q", "quit", "Sair"), Binding("1", "show_tab('roadmap')", "Trabalho"),
+                Binding("2", "show_tab('workspace')", "Workspace"), Binding("3", "show_tab('diff')", "Diff"),
+                Binding("4", "show_tab('logs')", "Logs"), Binding("5", "show_tab('chat')", "Chat")]
 
     def __init__(self, controller: GeneratorTUI):
         t = controller.theme
@@ -52,6 +55,12 @@ class KonstructorTUI(App[None]):
         #body {{ height: 1fr; padding: 0 1; }}
         #actions {{ width: 28%; min-width: 24; border: round {_terminal_color(t.accent)}; padding: 0 1; }}
         #main {{ width: 1fr; border: round {_terminal_color(t.accent)}; }}
+        #roadmap-pane {{ height: 1fr; }}
+        #work-items {{ height: 1fr; border: round {_terminal_color(t.panel)}; }}
+        #roadmap-detail {{ height: 1fr; border: round {_terminal_color(t.panel)}; padding: 1; overflow: auto; }}
+        #roadmap-fields {{ height: auto; }}
+        #roadmap-title {{ width: 1fr; }}
+        #roadmap-description, #location-hint {{ width: 1fr; }}
         #action-list {{ height: 1fr; }}
         #action-input {{ margin-top: 1; }}
         #tabs {{ height: 1fr; }}
@@ -82,17 +91,33 @@ class KonstructorTUI(App[None]):
         self._editor_path: str | None = None
         self._editor_hash: str | None = None
         self._editor_original = ""
+        self._work_items: list[dict] = []
+        self._selected_work_item: dict | None = None
+        self._location_suggestion: dict | None = None
+        self._work_item_changeset: tuple[str, str] | None = None
 
     def compose(self) -> ComposeResult:
         yield Header()
         with Horizontal(id="body"):
             with Vertical(id="actions"):
-                yield Label("WORKFLOW")
+                yield Label("AÇÕES")
                 yield ListView(*(ListItem(Label(ACTION_LABELS[action]), id=f"action-{action}") for _, action in MENU), id="action-list")
-                yield Input(placeholder="Requisito ou ID do plano/changeset", id="action-input")
-                yield Button("Executar ação selecionada", id="run-action", variant="primary")
+                yield Input(placeholder="Descreva o requisito ou informe um ID", id="action-input")
+                yield Button("Executar operação", id="run-action", variant="primary")
             with Vertical(id="main"):
-                with TabbedContent(initial="workspace", id="tabs"):
+                with TabbedContent(initial="roadmap", id="tabs"):
+                    with TabPane("Trabalho", id="roadmap"):
+                        with Vertical(id="roadmap-pane"):
+                            yield ListView(id="work-items")
+                            yield Static("O roadmap está vazio. Adicione um item ou importe o roadmap legado pelo CLI.", id="roadmap-detail", markup=False)
+                            with Vertical(id="roadmap-fields"):
+                                yield Input(placeholder="O que precisa ser feito?", id="roadmap-title")
+                                yield Input(placeholder="Critério de aceite ou contexto (opcional)", id="roadmap-description")
+                                with Horizontal():
+                                    yield Button("Adicionar trabalho", id="add-work", variant="primary")
+                                    yield Input(placeholder="Arquivo existente, se já souber", id="location-hint")
+                                    yield Button("Sugerir local", id="suggest-location")
+                                    yield Button("Preparar alteração", id="prepare-work")
                     with TabPane("Workspace", id="workspace"):
                         with TabbedContent(initial="editor", id="workspace-views"):
                             with TabPane("Editor", id="editor"):
@@ -125,10 +150,10 @@ class KonstructorTUI(App[None]):
                             yield Input(placeholder="Converse sobre este workspace…", id="chat-input")
                             yield Button("Enviar", id="send-chat", variant="primary")
                             yield Button("Criar plano", id="create-plan")
-                yield Static(f"Workspace: {self.controller.root}\nSelecione uma ação; apply exige confirmação digitando APPLY <ID>.", id="status")
+                yield Static(f"Workspace: {self.controller.root}\nEscolha um trabalho no Roadmap; aplicação exige revisar diff, validar e confirmar APPLY <ID>.", id="status")
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         logging.getLogger().addHandler(self._log_handler)
         self.set_interval(self.controller.config.refresh_ms / 1000, self._refresh_logs)
         self.query_one("#action-list", ListView).index = 0
@@ -136,6 +161,119 @@ class KonstructorTUI(App[None]):
         self.query_one("#file-editor", TextArea).soft_wrap = False
         self.query_one("#diff-log", RichLog).write("Nenhum diff carregado.")
         self.query_one("#chat-log", RichLog).write("Chat do workspace. Mensagens são enviadas ao provedor OpenAI-compatible configurado.\nA conversa não aplica alterações; use o workflow e revise o diff.")
+        try:
+            roadmap_store.initialize_empty(self.controller.root)
+            await self._refresh_roadmap()
+        except (OSError, ValueError) as exc:
+            self.notify(f"Roadmap indisponível: {exc}", severity="error")
+
+    async def _refresh_roadmap(self, selected_id: str | None = None) -> None:
+        self._work_items = roadmap_store.list_records(self.controller.root, "Roadmap")
+        listing = self.query_one("#work-items", ListView)
+        await listing.clear()
+        await listing.extend(ListItem(Label(
+            f"{item['id']}  ·  {next((str(value) for key, value in item['data'].items() if key.casefold() in {'deliverable / work item', 'work item', 'title', 'name'}), item['id'])}"
+        , markup=False), id=f"work-{index}") for index, item in enumerate(self._work_items))
+        if not self._work_items:
+            self._selected_work_item = None
+            self.query_one("#roadmap-detail", Static).update("Nenhum item ainda. Descreva uma tarefa abaixo para começar, ou importe o workbook legado com `konstructor roadmap import`.")
+            return
+        index = next((i for i, item in enumerate(self._work_items) if item["id"] == selected_id), 0)
+        listing.index = index
+        self._select_work_item(index)
+
+    def _select_work_item(self, index: int) -> None:
+        if not 0 <= index < len(self._work_items):
+            return
+        self._selected_work_item = self._work_items[index]
+        self._location_suggestion = None
+        item = self._selected_work_item
+        self._render_work_item()
+
+    def _render_work_item(self) -> None:
+        if not self._selected_work_item:
+            return
+        item = self._selected_work_item
+        lines = [f"{item['id']}  ·  {item['sheet']}"]
+        lines.extend(f"{key}: {value}" for key, value in item["data"].items() if value not in (None, ""))
+        if self._location_suggestion:
+            result = self._location_suggestion
+            lines.extend(["", f"Sugestão: {result['module_path']}", f"Arquivo: {result['target_file']}", f"Confiança: {result['confidence']}", result["reason"], f"Perguntas: {'; '.join(result['questions']) or 'nenhuma'}"])
+        self.query_one("#roadmap-detail", Static).update("\n".join(lines))
+
+    async def _add_work_item(self) -> None:
+        title = self.query_one("#roadmap-title", Input).value.strip()
+        description = self.query_one("#roadmap-description", Input).value.strip()
+        try:
+            item = roadmap_store.create_work_item(self.controller.root, title, description)
+            self.query_one("#roadmap-title", Input).value = ""
+            self.query_one("#roadmap-description", Input).value = ""
+            await self._refresh_roadmap(item["id"])
+            self.controller.log(f"Trabalho {item['id']} adicionado ao roadmap.")
+        except (OSError, ValueError) as exc:
+            self.notify(f"Não foi possível adicionar o trabalho: {exc}", severity="error")
+
+    def _suggest_selected_location(self) -> None:
+        if not self._selected_work_item:
+            self.notify("Selecione um item do roadmap primeiro.", severity="warning")
+            return
+        item = self._selected_work_item
+        hint = self.query_one("#location-hint", Input).value.strip()
+        self.query_one("#suggest-location", Button).disabled = True
+        self.run_worker(lambda: self._suggest_location_worker(item, hint), thread=True, exclusive=True)
+
+    def _suggest_location_worker(self, item: dict, hint: str) -> None:
+        try:
+            result = suggest_location(self.controller.root, item, OpenAICompatibleProvider(), hint)
+            error = None
+        except Exception as exc:
+            result, error = None, str(exc)
+        self.call_from_thread(self._show_location_suggestion, item["id"], result, error)
+
+    def _show_location_suggestion(self, item_id: str, result: dict | None, error: str | None) -> None:
+        self.query_one("#suggest-location", Button).disabled = False
+        if not self._selected_work_item or self._selected_work_item["id"] != item_id:
+            return
+        if error:
+            self.notify(f"Não foi possível sugerir um local: {error}", severity="error")
+            return
+        self._location_suggestion = result
+        self._render_work_item()
+
+    def _prepare_work_item(self) -> None:
+        if not self._selected_work_item or not self._location_suggestion:
+            self.notify("Selecione um trabalho e peça uma sugestão de local antes de preparar a alteração.", severity="warning")
+            return
+        item, suggestion = self._selected_work_item, self._location_suggestion
+        self.query_one("#prepare-work", Button).disabled = True
+        self.run_worker(lambda: self._prepare_work_worker(item, suggestion), thread=True, exclusive=True)
+
+    def _prepare_work_worker(self, item: dict, suggestion: dict) -> None:
+        title = next((str(value) for key, value in item["data"].items() if key.casefold() in {"deliverable / work item", "work item", "title", "name"}), item["id"])
+        criteria = next((str(value) for key, value in item["data"].items() if key.casefold() in {"definition of done / acceptance criteria", "acceptance criteria", "description"}), "")
+        request = f"Roadmap {item['id']}: {title}\nCritério/contexto: {criteria}\nLocal recomendado: {suggestion['module_path']} — {suggestion['reason']}"
+        try:
+            changeset = stage_edits(self.controller.root, request, [suggestion["target_file"]], OpenAICompatibleProvider())
+            text = diff(self.controller.root, changeset.id)
+            error = None
+        except Exception as exc:
+            changeset, text, error = None, "", str(exc)
+        self.call_from_thread(self._show_prepared_work, item["id"], changeset, text, error)
+
+    def _show_prepared_work(self, item_id: str, changeset, text: str, error: str | None) -> None:
+        self.query_one("#prepare-work", Button).disabled = False
+        if error:
+            self.notify(f"Não foi possível preparar a alteração: {error}", severity="error")
+            return
+        self.controller.changeset_id = changeset.id
+        self._work_item_changeset = (item_id, changeset.id)
+        self.controller.diff_lines = text.splitlines() or ["Diff vazio."]
+        pane = self.query_one("#diff-log", RichLog)
+        pane.clear()
+        pane.write(text or "Diff vazio.")
+        self.query_one("#tabs", TabbedContent).active = "diff"
+        self.query_one("#status", Static).update(f"Alteração para {item_id} preparada em staging ({changeset.id}). Revise o diff e use Validar changeset antes de aplicar.")
+        self.controller.log(f"Changeset {changeset.id} preparado para o trabalho {item_id}; nada aplicado.")
 
     def on_unmount(self) -> None:
         logging.getLogger().removeHandler(self._log_handler)
@@ -151,19 +289,22 @@ class KonstructorTUI(App[None]):
             if action == "quit":
                 self.exit()
             elif action == "next_view":
-                tabs = ("workspace", "diff", "logs", "chat")
+                tabs = ("roadmap", "workspace", "diff", "logs", "chat")
                 current = self.query_one(TabbedContent).active
                 self.query_one(TabbedContent).active = tabs[(tabs.index(current) + 1) % len(tabs)]
             elif action in {"workspace_view", "diff_view", "logs_view", "split_view"}:
                 self.query_one(TabbedContent).active = {"workspace_view": "workspace", "diff_view": "diff", "logs_view": "logs", "split_view": "chat"}[action]
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        action = (event.item.id or "").removeprefix("action-")
-        self._dispatch(action)
+        if event.list_view.id == "action-list":
+            action = (event.item.id or "").removeprefix("action-")
+            self._dispatch(action)
+        elif event.list_view.id == "work-items" and event.list_view.index is not None:
+            self._select_work_item(event.list_view.index)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "run-action":
-            item = self.query_one(ListView).highlighted_child
+            item = self.query_one("#action-list", ListView).highlighted_child
             if item:
                 self._dispatch((item.id or "").removeprefix("action-"))
         elif event.button.id == "send-chat":
@@ -180,14 +321,26 @@ class KonstructorTUI(App[None]):
             self._save_file()
         elif event.button.id == "discard-file":
             self._discard_file()
+        elif event.button.id == "add-work":
+            await self._add_work_item()
+        elif event.button.id == "suggest-location":
+            self._suggest_selected_location()
+        elif event.button.id == "prepare-work":
+            self._prepare_work_item()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id == "chat-input":
             self._send_chat()
         elif event.input.id == "new-file-path":
             self._new_file()
-        else:
-            item = self.query_one(ListView).highlighted_child
+        elif event.input.id == "roadmap-title":
+            self.run_worker(self._add_work_item, thread=False)
+        elif event.input.id == "location-hint":
+            self._suggest_selected_location()
+        elif event.input.id == "roadmap-description":
+            self.run_worker(self._add_work_item, thread=False)
+        elif event.input.id == "action-input":
+            item = self.query_one("#action-list", ListView).highlighted_child
             if item:
                 self._dispatch((item.id or "").removeprefix("action-"))
 
@@ -406,6 +559,11 @@ class KonstructorTUI(App[None]):
             self.query_one("#action-input", Input).value = ""
         elif action == "generate" and result:
             self.query_one("#action-input", Input).value = result["changeset_id"]
+        elif action == "apply" and result and self._work_item_changeset and self._work_item_changeset[1] == self.controller.changeset_id:
+            item_id = self._work_item_changeset[0]
+            roadmap_store.update_record(self.controller.root, item_id, "Implementado; verificar aceite", self.controller.changeset_id, "Aplicado pela TUI; valide critérios de aceite.")
+            self._work_item_changeset = None
+            self.run_worker(lambda: self._refresh_roadmap(item_id), thread=False)
 
     def _refresh_logs(self) -> None:
         lines = self.controller.log_buffer.snapshot()

@@ -33,9 +33,12 @@ def main(argv=None):
         item=appsub.add_parser(action, help=f"{action} app proposal"); item.add_argument("path"); item.add_argument("proposal_id")
     provider=sub.add_parser("provider", help="LLM provider status and structured generation"); provider.add_argument("action", choices=("status", "complete")); provider.add_argument("--prompt"); provider.add_argument("--schema", help="JSON schema inline"); provider.add_argument("--model"); provider.add_argument("--base-url")
     edit=sub.add_parser("edit", help="propor edição de arquivos existentes com LLM"); edit.add_argument("path"); edit.add_argument("request"); edit.add_argument("files", nargs="*"); edit.add_argument("--file", dest="selected_files", action="append", default=[]); edit.add_argument("--model"); edit.add_argument("--base-url")
-    roadmap=sub.add_parser("roadmap", help="roadmap dinâmico importado da planilha"); rsub=roadmap.add_subparsers(dest="roadmap_command", required=True)
+    roadmap=sub.add_parser("roadmap", help="roadmap dinâmico do workspace"); rsub=roadmap.add_subparsers(dest="roadmap_command", required=True)
     imp=rsub.add_parser("import", help="importar planilha XLSX ou seed JSON"); imp.add_argument("path", nargs="?", default=KODOO_DEFAULT); imp.add_argument("workbook", nargs="?", default=str(Path(__file__).resolve().parent.parent / "context/kodoo-roadmap.xlsx"))
-    seed=rsub.add_parser("seed", help="carregar roadmap inicial do Konstructor"); seed.add_argument("path", help="workspace Konstructor que receberá o seed")
+    init=rsub.add_parser("init", help="inicializar esquema vazio do roadmap"); init.add_argument("path", nargs="?", default=WORKSPACE_DEFAULT)
+    seed=rsub.add_parser("seed", help="alias compatível de roadmap init"); seed.add_argument("path", help="workspace Konstructor que receberá o esquema vazio")
+    add=rsub.add_parser("add", help="adicionar item de trabalho"); add.add_argument("title"); add.add_argument("--path", default=WORKSPACE_DEFAULT); add.add_argument("--description", default=""); add.add_argument("--priority", default="P2")
+    suggest=rsub.add_parser("suggest", help="sugerir módulo e arquivo para um item do roadmap"); suggest.add_argument("id"); suggest.add_argument("--path", default=WORKSPACE_DEFAULT); suggest.add_argument("--location-hint", default="")
     dash=rsub.add_parser("dashboard"); dash.add_argument("path", nargs="?", default=KODOO_DEFAULT)
     listing=rsub.add_parser("list"); listing.add_argument("path", nargs="?", default=KODOO_DEFAULT); listing.add_argument("--sheet"); listing.add_argument("--status"); listing.add_argument("--priority")
     show=rsub.add_parser("show"); show.add_argument("path"); show.add_argument("id")
@@ -118,7 +121,11 @@ def main(argv=None):
             if args.roadmap_command == "import":
                 importer = roadmap_store.import_json if Path(args.workbook).suffix.lower() == ".json" else roadmap_store.import_workbook
                 result=importer(args.path,args.workbook)
-            elif args.roadmap_command == "seed": result=roadmap_store.import_json(args.path, Path(__file__).with_name("roadmap_seed.json"))
+            elif args.roadmap_command in {"init", "seed"}: result=roadmap_store.initialize_empty(args.path)
+            elif args.roadmap_command == "add": result=roadmap_store.create_work_item(args.path,args.title,args.description,args.priority)
+            elif args.roadmap_command == "suggest":
+                from .capabilities import suggest_location
+                result=suggest_location(args.path,roadmap_store.show_record(args.path,args.id),OpenAICompatibleProvider(),args.location_hint)
             elif args.roadmap_command == "dashboard": result=roadmap_store.dashboard(args.path)
             elif args.roadmap_command == "list": result=roadmap_store.list_records(args.path,args.sheet,args.status,args.priority)
             elif args.roadmap_command == "show": result=roadmap_store.show_record(args.path,args.id)
