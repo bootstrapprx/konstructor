@@ -113,6 +113,7 @@ class KonstructorTUI(App[None]):
                             with TabPane("Markdown", id="markdown"):
                                 with Vertical():
                                     yield Button("Editar arquivo no Neovim", id="open-neovim-markdown")
+                                    yield Button("Atualizar prévia", id="refresh-markdown")
                                     yield MarkdownViewer("Selecione um arquivo **.md** na árvore do Workspace para visualizar a documentação formatada.", id="markdown-preview", show_table_of_contents=True)
                     with TabPane("Diff / detalhe", id="diff"):
                         yield RichLog(id="diff-log", wrap=False, markup=False)
@@ -160,7 +161,7 @@ class KonstructorTUI(App[None]):
         action = (event.item.id or "").removeprefix("action-")
         self._dispatch(action)
 
-    def on_button_pressed(self, event: Button.Pressed) -> None:
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "run-action":
             item = self.query_one(ListView).highlighted_child
             if item:
@@ -172,7 +173,9 @@ class KonstructorTUI(App[None]):
         elif event.button.id == "new-file":
             self._new_file()
         elif event.button.id in {"open-neovim", "open-neovim-markdown"}:
-            self._open_in_neovim()
+            await self._open_in_neovim()
+        elif event.button.id == "refresh-markdown":
+            await self._refresh_markdown_preview()
         elif event.button.id == "save-file":
             self._save_file()
         elif event.button.id == "discard-file":
@@ -188,7 +191,7 @@ class KonstructorTUI(App[None]):
             if item:
                 self._dispatch((item.id or "").removeprefix("action-"))
 
-    def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+    async def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
         try:
             relative = event.path.relative_to(self.controller.root).as_posix()
             target = safe_relative(self.controller.root, relative)
@@ -204,18 +207,25 @@ class KonstructorTUI(App[None]):
             self.query_one("#file-editor", TextArea).text = content
             self.query_one("#editor-path", Static).update(relative)
             if target.suffix.lower() == ".md":
-                self.query_one("#markdown-preview", MarkdownViewer).document.update(content)
+                await self._refresh_markdown_preview(content)
                 self.query_one("#workspace-views", TabbedContent).active = "markdown"
             else:
                 self.query_one("#workspace-views", TabbedContent).active = "editor"
         except (OSError, UnicodeError, SafetyError, ValueError) as exc:
             self.notify(f"Não foi possível abrir o arquivo: {exc}", severity="error")
 
-    def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        if event.text_area.id == "file-editor" and self._editor_path and self._editor_path.lower().endswith(".md"):
-            self.query_one("#markdown-preview", MarkdownViewer).document.update(event.text_area.text)
+    async def _refresh_markdown_preview(self, content: str | None = None) -> None:
+        if not self._editor_path or not self._editor_path.lower().endswith(".md"):
+            return
+        viewer = self.query_one("#markdown-preview", MarkdownViewer)
+        markdown = content if content is not None else self.query_one("#file-editor", TextArea).text
+        viewer.show_table_of_contents = False
+        try:
+            await viewer.document.update(markdown)
+        finally:
+            viewer.show_table_of_contents = True
 
-    def _open_in_neovim(self) -> None:
+    async def _open_in_neovim(self) -> None:
         if not self._editor_path:
             self.notify("Selecione ou crie um arquivo antes de abrir o Neovim.", severity="warning")
             return
@@ -243,7 +253,7 @@ class KonstructorTUI(App[None]):
                 self._editor_original = content
                 self.query_one("#file-editor", TextArea).text = content
                 if target.suffix.lower() == ".md":
-                    self.query_one("#markdown-preview", MarkdownViewer).document.update(content)
+                    await self._refresh_markdown_preview(content)
                 self.query_one("#workspace-tree", DirectoryTree).reload()
                 self.controller.log(f"Arquivo editado com Neovim: {self._editor_path}")
         except (OSError, UnicodeError, SafetyError, RuntimeError, ValueError) as exc:
