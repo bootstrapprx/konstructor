@@ -13,7 +13,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
-from textual.widgets import Button, DirectoryTree, Footer, Header, Input, Label, ListItem, ListView, RichLog, Static, TabbedContent, TabPane, TextArea
+from textual.widgets import Button, DirectoryTree, Footer, Header, Input, Label, ListItem, ListView, MarkdownViewer, RichLog, Static, TabbedContent, TabPane, TextArea
 
 from .provider import OpenAICompatibleProvider
 from .safety import SafetyError, file_hash, safe_relative
@@ -59,6 +59,7 @@ class KonstructorTUI(App[None]):
         #workspace-summary {{ height: 5; padding: 0 1; overflow: auto; }}
         #editor-path {{ height: 1; padding: 0 1; color: {_terminal_color(t.muted)}; }}
         #file-editor {{ height: 1fr; border: round {_terminal_color(t.panel)}; }}
+        #markdown-preview {{ height: 1fr; border: round {_terminal_color(t.panel)}; }}
         #editor-controls {{ height: auto; padding: 0 1; }}
         #new-file-path {{ width: 1fr; }}
         #diff-log, #event-log {{ height: 1fr; border: round {_terminal_color(t.panel)}; }}
@@ -91,17 +92,21 @@ class KonstructorTUI(App[None]):
             with Vertical(id="main"):
                 with TabbedContent(initial="workspace", id="tabs"):
                     with TabPane("Workspace", id="workspace"):
-                        with Horizontal(id="workspace-pane"):
-                            yield DirectoryTree(str(self.controller.root), id="workspace-tree")
-                            with Vertical(id="editor-pane"):
-                                yield Static("Workspace ainda não inspecionado. Selecione Inspecionar workspace para carregar o inventário.", id="workspace-summary")
-                                yield Static("Selecione um arquivo na árvore ou crie um caminho novo.", id="editor-path")
-                                yield TextArea("", id="file-editor")
-                                with Horizontal(id="editor-controls"):
-                                    yield Input(placeholder="Novo caminho relativo, ex.: apps/ledger/src/lib.rs", id="new-file-path")
-                                    yield Button("Novo arquivo", id="new-file")
-                                    yield Button("Descartar", id="discard-file")
-                                    yield Button("Salvar no workspace", id="save-file", variant="primary")
+                        with TabbedContent(initial="editor", id="workspace-views"):
+                            with TabPane("Editor", id="editor"):
+                                with Horizontal(id="workspace-pane"):
+                                    yield DirectoryTree(str(self.controller.root), id="workspace-tree")
+                                    with Vertical(id="editor-pane"):
+                                        yield Static("Workspace ainda não inspecionado. Selecione Inspecionar workspace para carregar o inventário.", id="workspace-summary")
+                                        yield Static("Selecione um arquivo na árvore ou crie um caminho novo.", id="editor-path")
+                                        yield TextArea("", id="file-editor")
+                                        with Horizontal(id="editor-controls"):
+                                            yield Input(placeholder="Novo caminho relativo, ex.: apps/ledger/src/lib.rs", id="new-file-path")
+                                            yield Button("Novo arquivo", id="new-file")
+                                            yield Button("Descartar", id="discard-file")
+                                            yield Button("Salvar no workspace", id="save-file", variant="primary")
+                            with TabPane("Markdown", id="markdown"):
+                                yield MarkdownViewer("Selecione um arquivo **.md** na árvore do Workspace para visualizar a documentação formatada.", id="markdown-preview", show_table_of_contents=True)
                     with TabPane("Diff / detalhe", id="diff"):
                         yield RichLog(id="diff-log", wrap=False, markup=False)
                     with TabPane("Logs", id="logs"):
@@ -189,8 +194,17 @@ class KonstructorTUI(App[None]):
             self._editor_original = content
             self.query_one("#file-editor", TextArea).text = content
             self.query_one("#editor-path", Static).update(relative)
+            if target.suffix.lower() == ".md":
+                self.query_one("#markdown-preview", MarkdownViewer).document.update(content)
+                self.query_one("#workspace-views", TabbedContent).active = "markdown"
+            else:
+                self.query_one("#workspace-views", TabbedContent).active = "editor"
         except (OSError, UnicodeError, SafetyError, ValueError) as exc:
             self.notify(f"Não foi possível abrir o arquivo: {exc}", severity="error")
+
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if event.text_area.id == "file-editor" and self._editor_path and self._editor_path.lower().endswith(".md"):
+            self.query_one("#markdown-preview", MarkdownViewer).document.update(event.text_area.text)
 
     def _new_file(self) -> None:
         if self._editor_path and self.query_one("#file-editor", TextArea).text != self._editor_original:
@@ -332,7 +346,7 @@ class KonstructorTUI(App[None]):
             self.query_one("#diff-log", RichLog).write(result["diff"] or "Diff vazio.")
             self.query_one(TabbedContent).active = "diff"
         elif action in {"inspect", "index", "status"}:
-            self.query_one(TabbedContent).active = "workspace"
+            self.query_one("#tabs", TabbedContent).active = "workspace"
         elif action in {"plan", "generate", "validate", "apply"}:
             self.query_one(TabbedContent).active = "diff"
         if action == "plan" and result:
